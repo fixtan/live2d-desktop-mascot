@@ -418,7 +418,41 @@ setInterval(() => {
 }, 15000);
 
 // ===== クリック透過 =====
+// Linux: クリック透過の切り替えが効かない環境があるので、
+// ウィンドウの形（入力を受ける領域）をキャラと吹き出しの矩形に切り抜く
+const USE_SHAPE = process.platform === 'linux';
+let lastShape = '';
+
+function updateShape() {
+  const settingsOpen = settingsModal.style.display === 'block';
+  let rects;
+  if (settingsOpen || isDragging) {
+    rects = [{ x: 0, y: 0, width: window.innerWidth, height: window.innerHeight }];
+  } else {
+    rects = [];
+    const b = mascot.getBounds();
+    if (b) {
+      const x = Math.max(0, Math.floor(b.left)), y = Math.max(0, Math.floor(b.top));
+      rects.push({
+        x, y,
+        width: Math.min(window.innerWidth, Math.ceil(b.right)) - x,
+        height: Math.min(window.innerHeight, Math.ceil(b.bottom)) - y
+      });
+    }
+    if (bubble.classList.contains('show')) {
+      const r = bubble.getBoundingClientRect();
+      rects.push({ x: Math.floor(r.left), y: Math.floor(r.top), width: Math.ceil(r.width), height: Math.ceil(r.height) });
+    }
+    rects = rects.filter((r) => r.width > 0 && r.height > 0);
+  }
+  const key = JSON.stringify(rects);
+  if (key === lastShape) return;
+  lastShape = key;
+  ipcRenderer.send('set-shape', rects);
+}
+
 function updateHit(x, y) {
+  if (USE_SHAPE) { updateShape(); return; }
   const settingsOpen = settingsModal.style.display === 'block';
   const hit = isDragging || settingsOpen || mascot.hitTest(x, y);
   if (hit === !ignoring) return;
@@ -502,7 +536,8 @@ function openSettings() {
   if (settings.ttsEngine === 'voicevox') refreshSpeakerSelect();
   settingsModal.style.display = 'block';
   ignoring = false;
-  ipcRenderer.send('set-ignore-mouse', false);
+  if (USE_SHAPE) updateShape();
+  else ipcRenderer.send('set-ignore-mouse', false);
 }
 
 ipcRenderer.on('open-settings', openSettings);

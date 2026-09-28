@@ -184,6 +184,12 @@ ipcMain.on('model-bounds', (event, inset) => {
 });
 
 // クリック透過の切り替え（キャラの上だけクリックを受ける）
+// Linux 用：ウィンドウの形を矩形の集合に切り抜く（外側はクリックが下に抜ける）
+ipcMain.on('set-shape', (event, rects) => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.setShape(rects);
+});
+
 ipcMain.on('set-ignore-mouse', (event, ignore) => {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.setIgnoreMouseEvents(ignore, { forward: true });
