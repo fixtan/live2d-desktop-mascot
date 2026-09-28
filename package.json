@@ -5,7 +5,8 @@
   "scripts": {
     "start": "electron .",
     "dist:win": "electron-builder --win",
-    "dist:mac": "electron-builder --mac"
+    "dist:mac": "electron-builder --mac",
+    "dist:linux": "electron-builder --linux"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
@@ -76,6 +77,13 @@
       "category": "public.app-category.utilities",
       "identity": null,
       "artifactName": "live2d-desktop-mascot-${version}-mac-${arch}.${ext}"
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "icon": "build/icon.png",
+      "category": "Utility",
+      "maintainer": "lain",
+      "artifactName": "live2d-desktop-mascot-${version}-linux-${arch}.${ext}"
     }
   }
 }
