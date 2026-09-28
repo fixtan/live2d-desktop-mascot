@@ -18,12 +18,16 @@ const APP_ROOT = path.join(__dirname, '../..');
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
-    if (mainWindow) mainWindow.show();
-  });
+  // もう一度起動された／Dockアイコンがクリックされたら表示を戻す
+  const bringBack = () => {
+    if (!mainWindow) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+  };
+  app.on('second-instance', bringBack);
+  app.on('activate', bringBack);
   app.whenReady().then(() => {
     if (process.platform === 'win32') app.setAppUserModelId('com.fixtan.live2d-desktop-mascot');
-    if (process.platform === 'darwin') app.dock?.hide(); // 常駐型なのでDockに出さない
     createWindow();
     createTray();
   });
