@@ -68,7 +68,8 @@ function createWindow() {
   mainWindow.setAlwaysOnTop(true, 'screen-saver');
   if (process.platform === 'darwin') {
     // どのデスクトップ（Space）・フルスクリーンアプリの上にも表示
-    mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    // skipTransformProcessType: これが無いと Electron が Dock アイコンを消してしまう
+    mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
   }
 
   // npm start -- --debug で DevTools を別窓で開く
@@ -86,6 +87,7 @@ function createWindow() {
 // ===== タスクトレイ =====
 function createTray() {
   let icon = nativeImage.createFromPath(path.join(APP_ROOT, 'assets/tray.png'));
+  if (icon.isEmpty()) console.warn('[tray] アイコン画像を読めません:', path.join(APP_ROOT, 'assets/tray.png'));
   if (process.platform === 'darwin') icon = icon.resize({ width: 18, height: 18 }); // メニューバー用
   tray = new Tray(icon);
   tray.setToolTip('Live2D Desktop Mascot');
