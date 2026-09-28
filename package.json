@@ -22,7 +22,7 @@
   "homepage": "https://github.com/fixtan/live2d-desktop-mascot",
   "productName": "Live2D Desktop Mascot",
   "description": "VS Code の枠内に常駐する Live2D デスクトップマスコット",
-  "author": "fixtan",
+  "author": "lain",
   "license": "MIT",
   "build": {
     "appId": "com.fixtan.live2d-desktop-mascot",
