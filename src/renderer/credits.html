@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+  <title>クレジット</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 20px 24px;
+      background: #1e1e1e;
+      color: #ccc;
+      font-family: 'Segoe UI', 'Yu Gothic UI', sans-serif;
+      font-size: 13px;
+      line-height: 1.7;
+    }
+    h1 { font-size: 18px; color: #fff; margin: 0 0 2px; }
+    .ver { color: #888; margin-bottom: 16px; }
+    h2 {
+      font-size: 13px;
+      color: #78c8ff;
+      margin: 18px 0 6px;
+      padding-bottom: 4px;
+      border-bottom: 1px solid #333;
+    }
+    a { color: #78c8ff; }
+    ul { margin: 0; padding-left: 18px; }
+    .note { color: #999; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>Live2D Desktop Mascot</h1>
+  <div class="ver">version <span id="ver"></span> — by fixtan</div>
+
+  <h2>Live2D</h2>
+  <p>
+    本アプリは Live2D Inc. の <b>Live2D Cubism Core</b> を使用しています。<br>
+    <a href="https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_jp.html" target="_blank">Live2D Proprietary Software License</a>
+  </p>
+  <p>
+    同梱モデル「ハル」（標準版・受付版）および音声は Live2D Inc. のサンプルデータです。<br>
+    <a href="https://www.live2d.com/learn/sample/" target="_blank">Live2D サンプルデータ</a>
+  </p>
+
+  <h2>VOICEVOX</h2>
+  <p>
+    読み上げに VOICEVOX を選んだ場合、ローカルで起動している VOICEVOX Engine を利用します（本アプリには含まれません）。<br>
+    音声を公開する際は各キャラクターの利用規約に従い「VOICEVOX:キャラ名」のクレジットが必要です。<br>
+    <a href="https://voicevox.hiroshiba.jp/" target="_blank">VOICEVOX</a>
+  </p>
+
+  <h2>オープンソースソフトウェア</h2>
+  <ul>
+    <li><a href="https://github.com/electron/electron" target="_blank">Electron</a> — MIT License</li>
+    <li><a href="https://github.com/pixijs/pixijs" target="_blank">PixiJS</a> — MIT License</li>
+    <li><a href="https://github.com/guansss/pixi-live2d-display" target="_blank">pixi-live2d-display</a> — MIT License</li>
+    <li><a href="https://github.com/cthackers/adm-zip" target="_blank">adm-zip</a> — MIT License</li>
+  </ul>
+  <p class="note">各ライセンスの全文はリンク先のリポジトリを参照してください。</p>
+
+  <script>
+    document.getElementById('ver').textContent =
+      new URLSearchParams(location.search).get('version') || '';
+  </script>
+</body>
+</html>

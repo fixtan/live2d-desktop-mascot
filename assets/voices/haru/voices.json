@@ -1,0 +1,89 @@
+{
+  "name": "Haru",
+  "credit": "Live2D Inc. sample data",
+  "voices": [
+    {
+      "file": "../../haru/sounds/haru_normal_01.wav",
+      "text": "お疲れ様です",
+      "motion": "haru_normal_01",
+      "on": [
+        "idle",
+        "greet"
+      ]
+    },
+    {
+      "file": "../../haru/sounds/haru_normal_02.wav",
+      "text": "何かついてますか?",
+      "motion": "haru_normal_02",
+      "on": [
+        "click"
+      ]
+    },
+    {
+      "file": "../../haru/sounds/haru_normal_03.wav",
+      "text": "えっ、びっくりしたー",
+      "motion": "haru_normal_03",
+      "on": [
+        "click"
+      ]
+    },
+    {
+      "file": "../../haru/sounds/haru_normal_04.wav",
+      "text": "ん? なんですか?",
+      "motion": "haru_normal_04",
+      "on": [
+        "click"
+      ]
+    },
+    {
+      "file": "../../haru/sounds/haru_normal_05.wav",
+      "text": "触りたいんですか?",
+      "motion": "haru_normal_05",
+      "on": [
+        "click"
+      ]
+    },
+    {
+      "file": "../../haru/sounds/haru_normal_06.wav",
+      "text": "(笑)",
+      "motion": "haru_normal_06",
+      "on": [
+        "click",
+        "idle"
+      ]
+    },
+    {
+      "file": "../../haru/sounds/haru_normal_07.wav",
+      "text": "ど、どうしたんですか?",
+      "motion": "haru_normal_07",
+      "on": [
+        "click"
+      ]
+    },
+    {
+      "file": "../../haru/sounds/haru_normal_08.wav",
+      "text": "わぁ、なにするんですかー",
+      "motion": "haru_normal_08",
+      "on": [
+        "click"
+      ]
+    },
+    {
+      "file": "../../haru/sounds/haru_normal_09.wav",
+      "text": "今日は何食べようかな",
+      "motion": "haru_normal_09",
+      "on": [
+        "idle"
+      ]
+    },
+    {
+      "file": "../../haru/sounds/haru_normal_10.wav",
+      "text": "うふふ。いえ、なんでもありません。（笑）",
+      "motion": "haru_normal_10",
+      "on": [
+        "idle",
+        "click"
+      ]
+    }
+  ]
+}

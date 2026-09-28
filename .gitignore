@@ -1,0 +1,28 @@
+# 依存・ビルド成果物
+node_modules/
+dist/
+out/
+
+# Live2D の再配布物（各自で公式から取得して配置する）
+vendor/*
+!vendor/README.md
+assets/*
+!assets/voices/
+!assets/tray.png
+
+# エディタ・拡張機能
+.history/
+.vscode/*
+!.vscode/extensions.json
+*.code-workspace
+
+# ログ・一時ファイル
+*.log
+npm-debug.log*
+.env
+.env.*
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store

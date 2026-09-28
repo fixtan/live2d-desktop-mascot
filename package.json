@@ -1,0 +1,57 @@
+{
+  "name": "live2d-desktop-mascot",
+  "version": "1.0.0",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "pixi-live2d-display": "0.4.0",
+    "pixi.js": "6.5.9"
+  },
+  "devDependencies": {
+    "electron": "^30.0.0",
+    "electron-builder": "^26.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fixtan/live2d-desktop-mascot.git"
+  },
+  "homepage": "https://github.com/fixtan/live2d-desktop-mascot",
+  "productName": "Live2D Desktop Mascot",
+  "description": "VS Code の枠内に常駐する Live2D デスクトップマスコット",
+  "author": "fixtan",
+  "license": "MIT",
+  "build": {
+    "appId": "com.fixtan.live2d-desktop-mascot",
+    "productName": "Live2D Desktop Mascot",
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "vendor/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.exe"
+    }
+  }
+}

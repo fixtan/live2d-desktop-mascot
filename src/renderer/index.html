@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>Live2D Mascot</title>
+
+  <!-- すべてローカル読み込み（オフラインで動く） -->
+  <script src="../../vendor/live2dcubismcore.min.js"></script>
+  <script src="../../node_modules/pixi.js/dist/browser/pixi.min.js"></script>
+  <script src="../../node_modules/pixi-live2d-display/dist/cubism4.min.js"></script>
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <canvas id="stage"></canvas>
+  <div id="bubble"></div>
+
+  <!-- 設定モーダル -->
+  <div id="settings-modal">
+    <div class="modal-header">
+      <span>マスコット設定</span>
+      <span class="close-btn" id="close-settings">✕</span>
+    </div>
+
+    <div class="setting-group">
+      <label class="setting-label">モデル</label>
+      <select id="model-select"></select>
+      <div class="button-row" style="margin-top: 6px">
+        <button id="btn-open-library">ライブラリを開く</button>
+        <button id="btn-remove-model">削除</button>
+      </div>
+    </div>
+
+    <div class="setting-group">
+      <label class="setting-label">ボイスパック</label>
+      <div class="button-row">
+        <select id="voice-pack-select" style="flex: 2"></select>
+        <button id="btn-test-voice">試聴</button>
+      </div>
+    </div>
+
+    <div class="setting-group">
+      <label class="setting-label">読み上げエンジン（自作セリフ用）</label>
+      <div class="button-row">
+        <select id="engine-select" style="flex: 2">
+          <option value="voicevox">VOICEVOX</option>
+          <option value="os">Windows標準</option>
+        </select>
+        <button id="btn-test-tts">試聴</button>
+      </div>
+      <div id="voicevox-settings" style="margin-top: 6px">
+        <select id="speaker-select"></select>
+        <label class="setting-label" style="margin-top: 6px">話速</label>
+        <input type="range" id="speed-range" min="0.7" max="1.6" step="0.05">
+        <div id="voicevox-credit" class="credit"></div>
+      </div>
+    </div>
+
+    <div class="setting-group">
+      <label class="setting-label">動作モード</label>
+      <select id="mode-select">
+        <option value="vscode">VS Code追従モード (枠内限定)</option>
+        <option value="free">フリーモード (自由移動)</option>
+      </select>
+    </div>
+
+    <div class="setting-group">
+      <label class="setting-label">サイズ（Ctrl+ホイールでも変更可）</label>
+      <input type="range" id="height-range" min="200" max="1000" step="10">
+    </div>
+
+    <div class="setting-group">
+      <label class="setting-label">不透明度</label>
+      <input type="range" id="opacity-range" min="0.2" max="1.0" step="0.05">
+    </div>
+
+    <div class="setting-group">
+      <label class="check-row"><input type="checkbox" id="gaze-check">視線追従</label>
+      <label class="check-row"><input type="checkbox" id="voice-check">自作セリフを読み上げ</label>
+      <label class="check-row"><input type="checkbox" id="events-check">ランダムイベント</label>
+      <label class="check-row"><input type="checkbox" id="chime-check">時報</label>
+    </div>
+  </div>
+
+  <script src="adapters/live2d.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
