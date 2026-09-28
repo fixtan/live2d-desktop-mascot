@@ -1,24 +1,30 @@
 # Live2D Desktop Mascot
 
-VS Code のウィンドウ内に常駐する Live2D デスクトップマスコット（Windows）。
+VS Code のウィンドウ内に常駐する Live2D デスクトップマスコット（Windows / macOS）。
 
 - VS Code の枠内に留まる（フリーモードで自由移動も可）
 - マウスを目で追う・クリック／ダブルクリックで反応・時報・独り言
 - キャラ以外の透明部分はクリックが下のアプリに抜ける
 - モデル切り替え（ZIP／フォルダ取り込み、model3.json 直接指定）
 - ボイスパック（声と字幕とモーションの組み合わせ）
-- 読み上げ：VOICEVOX（起動していれば）／ Windows 標準音声
+- 読み上げ：VOICEVOX（起動していれば）／ OS 標準音声
 - 音量に合わせた口パク
 
 ## ダウンロード
 
 [Releases](../../releases) から
 
-- `Live2D Desktop Mascot Setup x.x.x.exe` … インストーラー
-- `Live2D Desktop Mascot-x.x.x-portable.exe` … インストール不要版
+- `live2d-desktop-mascot-x.x.x-setup.exe` … Windows インストーラー
+- `live2d-desktop-mascot-x.x.x-portable.exe` … Windows インストール不要版
 
-> 署名していないため、初回起動時に「Windows によって PC が保護されました」と表示されます。
-> 「詳細情報」→「実行」で起動できます。
+- `live2d-desktop-mascot-x.x.x-mac-arm64.dmg` … Mac（Apple Silicon）
+- `live2d-desktop-mascot-x.x.x-mac-x64.dmg` … Mac（Intel）
+
+> **Windows**：署名していないため「Windows によって PC が保護されました」と表示されます。「詳細情報」→「実行」で起動できます。
+>
+> **macOS**：署名・公証していないため初回は開けません。「システム設定」→「プライバシーとセキュリティ」→「このまま開く」で起動できます。
+> 「壊れているため開けません」と出る場合はターミナルで `xattr -cr "/Applications/Live2D Desktop Mascot.app"` を実行してください。
+> macOS では VS Code 追従モードは使えません（フリーモードで動作）。常駐アイコンはメニューバーに出ます。
 
 ## 使い方
 
@@ -43,6 +49,7 @@ npm install
 npm start            # 起動
 npm start -- --debug # DevTools付き
 npm run dist:win     # Windows版ビルド（dist/）
+npm run dist:mac     # macOS版ビルド（Mac上で実行）
 ```
 
 リポジトリには Live2D の再配布物を含めていません。以下を各自で配置してください。

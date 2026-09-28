@@ -23,6 +23,7 @@ if (!app.requestSingleInstanceLock()) {
   });
   app.whenReady().then(() => {
     if (process.platform === 'win32') app.setAppUserModelId('com.fixtan.live2d-desktop-mascot');
+    if (process.platform === 'darwin') app.dock?.hide(); // 常駐型なのでDockに出さない
     createWindow();
     createTray();
   });
@@ -60,6 +61,10 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   mainWindow.setAlwaysOnTop(true, 'screen-saver');
+  if (process.platform === 'darwin') {
+    // どのデスクトップ（Space）・フルスクリーンアプリの上にも表示
+    mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  }
 
   // npm start -- --debug で DevTools を別窓で開く
   if (process.argv.includes('--debug')) {
@@ -75,7 +80,8 @@ function createWindow() {
 
 // ===== タスクトレイ =====
 function createTray() {
-  const icon = nativeImage.createFromPath(path.join(APP_ROOT, 'assets/tray.png'));
+  let icon = nativeImage.createFromPath(path.join(APP_ROOT, 'assets/tray.png'));
+  if (process.platform === 'darwin') icon = icon.resize({ width: 18, height: 18 }); // メニューバー用
   tray = new Tray(icon);
   tray.setToolTip('Live2D Desktop Mascot');
   const send = (type) => mainWindow?.webContents.send('menu-action', { type });
@@ -228,29 +234,47 @@ ipcMain.handle('library-remove', (event, id) => {
 // VOICEVOX（CORS回避のためメインプロセスから叩く）
 const VOICEVOX = 'http://127.0.0.1:50021';
 
+// 失敗時は例外を投げずに null を返す（エンジン未起動のたびに長いエラーログが出ないように）
+let voicevoxWarned = false;
+function voicevoxDown(e) {
+  if (!voicevoxWarned) console.log('[voicevox] 接続できません（' + (e.cause?.code || e.message) + '）→ OS音声を使用');
+  voicevoxWarned = true;
+  return null;
+}
+
 ipcMain.handle('voicevox-speakers', async () => {
-  const res = await fetch(`${VOICEVOX}/speakers`, { signal: AbortSignal.timeout(3000) });
-  if (!res.ok) throw new Error('speakers ' + res.status);
-  return res.json();
+  try {
+    const res = await fetch(`${VOICEVOX}/speakers`, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) throw new Error('speakers ' + res.status);
+    voicevoxWarned = false;
+    return await res.json();
+  } catch (e) {
+    return voicevoxDown(e);
+  }
 });
 
 ipcMain.handle('voicevox-synth', async (event, { text, speaker, speed = 1 }) => {
-  const q = await fetch(
-    `${VOICEVOX}/audio_query?text=${encodeURIComponent(text)}&speaker=${speaker}`,
-    { method: 'POST', signal: AbortSignal.timeout(10000) }
-  );
-  if (!q.ok) throw new Error('audio_query ' + q.status);
-  const query = await q.json();
-  query.speedScale = speed;
+  try {
+    const q = await fetch(
+      `${VOICEVOX}/audio_query?text=${encodeURIComponent(text)}&speaker=${speaker}`,
+      { method: 'POST', signal: AbortSignal.timeout(10000) }
+    );
+    if (!q.ok) throw new Error('audio_query ' + q.status);
+    const query = await q.json();
+    query.speedScale = speed;
 
-  const s = await fetch(`${VOICEVOX}/synthesis?speaker=${speaker}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(query),
-    signal: AbortSignal.timeout(30000)
-  });
-  if (!s.ok) throw new Error('synthesis ' + s.status);
-  return new Uint8Array(await s.arrayBuffer());
+    const s = await fetch(`${VOICEVOX}/synthesis?speaker=${speaker}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(query),
+      signal: AbortSignal.timeout(30000)
+    });
+    if (!s.ok) throw new Error('synthesis ' + s.status);
+    voicevoxWarned = false;
+    return new Uint8Array(await s.arrayBuffer());
+  } catch (e) {
+    return voicevoxDown(e);
+  }
 });
 
 ipcMain.on('library-open', () => shell.openPath(library.libraryDir()));

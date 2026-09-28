@@ -314,10 +314,9 @@ async function speak(text) {
         speed: settings.voicevoxSpeed
       });
       if (token !== playToken) return;
-      await playAudioData(wav, token);
-      return;
+      if (wav) { await playAudioData(wav, token); return; }
     } catch (e) {
-      console.warn('VOICEVOX失敗、OS音声に切り替え:', e);
+      console.warn('VOICEVOX再生失敗:', e);
       if (token !== playToken) return;
     }
   }
@@ -344,6 +343,7 @@ async function refreshSpeakerSelect() {
   sel.innerHTML = '';
   try {
     const speakers = await ipcRenderer.invoke('voicevox-speakers');
+    if (!speakers) throw new Error('offline');
     for (const sp of speakers) {
       for (const st of sp.styles) {
         const opt = new Option(`${sp.name}（${st.name}）`, st.id);
