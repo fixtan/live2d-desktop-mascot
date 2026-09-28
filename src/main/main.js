@@ -39,6 +39,7 @@ function createWindow() {
     hasShadow: false,
     resizable: true,
     skipTaskbar: true, // タスクバーには出さず、トレイから操作する
+    minimizable: false, // 最小化させない（隠すのはトレイ／メニューから）
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
@@ -100,6 +101,7 @@ function createTray() {
 
 function toggleVisible() {
   if (!mainWindow) return;
+  if (mainWindow.isMinimized()) { mainWindow.restore(); mainWindow.show(); return; }
   if (mainWindow.isVisible()) mainWindow.hide();
   else mainWindow.show();
 }
