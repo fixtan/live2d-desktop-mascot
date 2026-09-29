@@ -2,6 +2,8 @@ const { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, screen, dialog, sh
 const path = require('path');
 const tracker = require('./tracker');
 const library = require('./library');
+const { loadConfig } = require('./config');
+const { startBridge } = require('./bridge');
 
 let mainWindow;
 let isTrackingMode = tracker.supported;
@@ -11,6 +13,7 @@ let modelInset = null; // ウィンドウ内でのキャラ描画範囲 {left, t
 let cursorTimer = null;
 let tray = null;
 let creditsWindow = null;
+let bridge = null;
 
 const APP_ROOT = path.join(__dirname, '../..');
 
@@ -30,6 +33,7 @@ if (!app.requestSingleInstanceLock()) {
     if (process.platform === 'win32') app.setAppUserModelId('com.fixtan.live2d-desktop-mascot');
     createWindow();
     createTray();
+    startBridgeFromConfig();
   });
 }
 
@@ -84,6 +88,24 @@ function createWindow() {
   startCursorTracking();
 }
 
+// ===== VS Code拡張との連携（WebSocket） =====
+async function startBridgeFromConfig() {
+  const { config } = loadConfig(app.getPath('userData'));
+  if (!config.bridge.enabled) { console.log('[bridge] 無効（config.json）'); return; }
+  try {
+    bridge = await startBridge({
+      dir: app.getPath('userData'),
+      port: config.bridge.port,
+      version: app.getVersion(),
+      onEvent: (msg) => {
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('bridge-event', msg);
+      }
+    });
+  } catch (e) {
+    console.error('[bridge] 起動できません:', e.message);
+  }
+}
+
 // ===== タスクトレイ =====
 function createTray() {
   let icon = nativeImage.createFromPath(path.join(APP_ROOT, 'assets/tray.png'));
@@ -99,6 +121,7 @@ function createTray() {
     { label: '💬 話しかける', click: () => send('talk') },
     { label: '⚙️ 設定を開く', click: () => { mainWindow.show(); mainWindow.webContents.send('open-settings'); } },
     { label: '📜 クレジット', click: openCredits },
+    { label: '📂 設定フォルダを開く', click: () => shell.openPath(app.getPath('userData')) },
     { type: 'separator' },
     { label: '❌ 終了', click: () => app.quit() }
   ]));
@@ -353,6 +376,7 @@ ipcMain.on('set-tracking-mode', (event, enable) => {
 });
 
 app.on('before-quit', () => {
+  if (bridge) bridge.stop();
   if (trackerHandle) trackerHandle.stop();
   if (cursorTimer) clearInterval(cursorTimer);
 });

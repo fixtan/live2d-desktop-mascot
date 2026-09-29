@@ -63,12 +63,15 @@ npm run dist:mac     # macOS版ビルド（Mac上で実行）
 ```
 src/main/main.js            メインプロセス（ウィンドウ・トレイ・IPC）
 src/main/library.js         モデルライブラリ（取り込み・一覧・削除）
+src/main/config.js          config.json の読み込み（既定値の補完）
+src/main/bridge.js          WebSocket サーバー（VS Code 拡張との連携）
 src/main/tracker/           VS Code位置追跡（OS別。現在 win32 のみ）
 src/renderer/app.js         吹き出し・イベント・設定・入力・音声
 src/renderer/adapters/      描画アダプタ（live2d.js）
 assets/<モデル>/            同梱モデル
 assets/voices/<名前>/       ボイスパック
 vendor/                     Cubism Core
+scripts/bridge-send.js      連携のテスト送信
 ```
 
 ### ボイスパック
@@ -86,11 +89,55 @@ vendor/                     Cubism Core
 - `file`: voices.json からの相対パス
 - `text`: 吹き出しの字幕（空なら出さない）
 - `motion`: モーションファイル名の部分一致（無ければランダム）
-- `on`: 使う場面（`click` / `idle`。省略で全場面）
+- `on`: 使う場面（`click` / `idle`、連携イベントは下記。省略で click / idle の全場面）
+
+### VS Code 連携（WebSocket）
+
+VS Code 拡張などから、保存・エラー・タスク結果などのイベントを受け取って反応します。
+
+設定フォルダ（トレイの「📂 設定フォルダを開く」）
+
+| OS | 場所 |
+|---|---|
+| Windows | `%APPDATA%\Live2D Desktop Mascot\` |
+| macOS | `~/Library/Application Support/Live2D Desktop Mascot/` |
+| Linux | `~/.config/Live2D Desktop Mascot/` |
+
+- `config.json`：ユーザーが編集する設定。変更は再起動で反映
+  ```json
+  { "configVersion": 1, "bridge": { "enabled": true, "port": 0 } }
+  ```
+  `port` が `0` なら空きポートを自動で使う。番号を書くとそのポートを使う（使用中なら自動に切り替え）
+- `bridge.json`：起動時にアプリが書き出す接続情報。終了時に削除される。クライアントはこれを読む
+  ```json
+  { "v": 1, "host": "127.0.0.1", "port": 53811, "token": "…", "pid": 1234, "version": "1.2.0" }
+  ```
+
+接続：`ws://127.0.0.1:<port>/?token=<token>`。127.0.0.1 のみで待ち受け、Origin ヘッダー付き（ブラウザ）の接続は拒否します。接続すると `welcome` が返ります。
+
+メッセージ：`{ "v": 1, "type": "...", "payload": { ... }, "ts": 1759110000000 }`
+
+| type | payload | 反応 |
+|---|---|---|
+| `save` | `{ file?, languageId? }` | ときどき（最短45秒おき） |
+| `diagnostics` | `{ errors, warnings }` | エラーが増えた時・0件になった時。変化のたびに送ってよい（接続直後の1回目は基準値として扱う） |
+| `debugStart` | `{ name? }` | デバッグ開始 |
+| `taskEnd` | `{ name, exitCode }` | 成功／失敗（`exitCode` が無ければ無反応） |
+| `say` | `{ text }` | そのまましゃべる（200文字まで） |
+| `ping` | — | `pong` を返す |
+
+ボイスパックの `on` に `save` / `error` / `fixed` / `debug` / `taskOk` / `taskFail` / `connect` を書くと、その場面ではセリフの代わりにその声を使います。
+
+テスト送信：
+
+```
+node scripts/bridge-send.js say '{"text":"テストだよ"}'
+node scripts/bridge-send.js diagnostics '{"errors":0}' '{"errors":3}' '{"errors":0}'
+```
 
 ## クレジット
 
 - Live2D Cubism Core — © Live2D Inc.（Live2D Proprietary Software License）
 - 同梱モデル・音声「ハル」— Live2D Inc. サンプルデータ
-- Electron / PixiJS / pixi-live2d-display / adm-zip — MIT License
+- Electron / PixiJS / pixi-live2d-display / adm-zip / ws — MIT License
 - VOICEVOX は同梱していません。音声を公開する場合は「VOICEVOX:キャラ名」の表記が必要です。

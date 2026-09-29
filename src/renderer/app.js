@@ -530,6 +530,89 @@ window.addEventListener('drop', (e) => {
   say('ZIP・フォルダ・.model3.json をドロップしてね', undefined, { tts: false });
 });
 
+// ===== VS Code拡張からのイベント（WebSocket → メイン → IPC） =====
+// ボイスパックで on に save / error / fixed / debug / taskOk / taskFail を書くと、その声を優先して使う
+const BRIDGE_LINES = {
+  connect: ['VS Code とつながったよ'],
+  save: ['保存したね', 'こまめな保存、えらい', 'セーブ完了！'],
+  error: (n) => [`エラーが ${n} 件あるよ`, `あれ、エラー ${n} 件…`, `エラー ${n} 件。落ち着いていこう`],
+  fixed: ['エラー全部消えた！', 'きれいになったね', 'ノーエラー！'],
+  debug: ['デバッグ開始だね', 'バグ、追いつめよう'],
+  taskOk: (name) => [`${name} 成功！`, `${name} 通ったよ`],
+  taskFail: (name, code) => [`${name} 失敗しちゃった…（exit ${code}）`]
+};
+
+const BRIDGE_COOLDOWN = 5000;       // 反応どうしの最短間隔
+const SAVE_COOLDOWN = 45000;        // 保存への反応の最短間隔
+const SAVE_CHANCE = 0.35;           // 保存に反応する確率
+let lastBridgeReact = 0;
+let lastSaveReact = 0;
+let bridgeGreeted = false;
+const diagByClient = new Map();     // client → 前回のエラー数
+
+const clip = (s, n) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+
+// scene に明示的に割り当てた声があればそれ、無ければセリフ＋しぐさ
+function react(scene, lines, { force = false } = {}) {
+  const now = Date.now();
+  if (!force && now - lastBridgeReact < BRIDGE_COOLDOWN) return;
+  if (isDragging) return;
+  lastBridgeReact = now;
+  const tagged = voices.filter((v) => v.on?.includes(scene));
+  if (tagged.length) { playVoice(pick(tagged)); return; }
+  playMotion();
+  say(pick(lines));
+}
+
+function onBridgeEvent({ type, payload = {}, client }) {
+  switch (type) {
+    case 'connect':
+      if (!bridgeGreeted) { bridgeGreeted = true; react('connect', BRIDGE_LINES.connect); }
+      break;
+    case 'disconnect':
+      diagByClient.delete(client);
+      break;
+    case 'save': {
+      const now = Date.now();
+      if (now - lastSaveReact < SAVE_COOLDOWN || Math.random() > SAVE_CHANCE) break;
+      lastSaveReact = now;
+      react('save', BRIDGE_LINES.save);
+      break;
+    }
+    case 'diagnostics': {
+      const errors = Math.max(0, Number(payload.errors) || 0);
+      const prev = diagByClient.get(client);
+      diagByClient.set(client, errors);
+      if (prev === undefined) break; // 接続直後のスナップショットは基準にするだけ
+      if (errors > prev) react('error', BRIDGE_LINES.error(errors));
+      else if (prev > 0 && errors === 0) react('fixed', BRIDGE_LINES.fixed, { force: true });
+      break;
+    }
+    case 'debugStart':
+      react('debug', BRIDGE_LINES.debug);
+      break;
+    case 'taskEnd': {
+      const name = clip(payload.name, 40) || 'タスク';
+      const code = Number.isInteger(payload.exitCode) ? payload.exitCode : null;
+      if (code === 0) react('taskOk', BRIDGE_LINES.taskOk(name));
+      else if (code !== null) react('taskFail', BRIDGE_LINES.taskFail(name, code), { force: true });
+      break;
+    }
+    case 'say': { // 任意のセリフ（テスト用・他ツール用）
+      const text = clip(payload.text, 200);
+      if (!text) break;
+      lastBridgeReact = Date.now();
+      playMotion();
+      say(text);
+      break;
+    }
+    default:
+      console.log('[bridge] 未対応のイベント:', type);
+  }
+}
+
+ipcRenderer.on('bridge-event', (event, msg) => onBridgeEvent(msg));
+
 // ===== メインプロセスからのイベント =====
 function openSettings() {
   refreshModelSelect();
