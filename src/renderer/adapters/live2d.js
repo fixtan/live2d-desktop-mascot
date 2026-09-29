@@ -15,8 +15,8 @@ class Live2DAdapter {
       preserveDrawingBuffer: true // ヒット判定でreadPixelsするため
     });
     this.model = null;
-    this.naturalW = 1;
-    this.naturalH = 1;
+    // キャラが実際に描かれている範囲（モデル内部座標）。キャンバスの余白を含まない
+    this.box = { left: 0, top: 0, right: 1, bottom: 1 };
     this.mouth = null; // null = モーションに任せる
     this._px = new Uint8Array(4);
     this._onBeforeUpdate = () => this._applyMouth();
@@ -32,10 +32,9 @@ class Live2DAdapter {
     }
 
     this.model = model;
-    model.anchor.set(0.5, 0.5);
+    model.anchor.set(0, 0);
     model.scale.set(1);
-    this.naturalW = model.width;
-    this.naturalH = model.height;
+    this.box = this._measureContent(model);
     this.app.stage.addChild(model);
     model.internalModel.on('beforeModelUpdate', this._onBeforeUpdate);
     this._ensureIdleGroup();
@@ -58,27 +57,71 @@ class Live2DAdapter {
     mm.motionGroups[idleName] = [];
   }
 
-  // 表示高さ(px)を指定してスケールを決める（モデルごとの元サイズ差を吸収）
+  // 描かれている範囲を頂点から測る。
+  // model.width / getBounds() はキャンバス全体の大きさで、上や左右に余白の多いモデルだと
+  // キャラが小さく表示され、吹き出しが頭から離れる。
+  // 非表示・透明のパーツ（差分用の腕など）は除く。モーションで少しはみ出す分の余裕を足す
+  _measureContent(model) {
+    const im = model.internalModel;
+    const fallback = { left: 0, top: 0, right: im.width, bottom: im.height };
+    try {
+      const core = im.coreModel;
+      im.pose?.updateParameters(core, 0); // pose3.json の差分パーツ（腕の切り替え等）を片方だけ表示に
+      core.update(); // 初期ポーズで頂点を計算させる
+      const lt = im.localTransform;
+      let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+      const n = core.getDrawableCount();
+      for (let i = 0; i < n; i++) {
+        if (core.getDrawableOpacity(i) < 0.01) continue;
+        if (core.getDrawableDynamicFlagIsVisible && !core.getDrawableDynamicFlagIsVisible(i)) continue;
+        const v = im.getDrawableVertices(i); // キャンバス座標（px）
+        for (let k = 0; k < v.length; k += 2) {
+          const x = lt.a * v[k] + lt.c * v[k + 1] + lt.tx;
+          const y = lt.b * v[k] + lt.d * v[k + 1] + lt.ty;
+          if (x < l) l = x; if (x > r) r = x;
+          if (y < t) t = y; if (y > b) b = y;
+        }
+      }
+      if (!(r > l && b > t)) return fallback;
+      const mx = (r - l) * 0.04, my = (b - t) * 0.02;
+      return {
+        left: Math.max(0, l - mx), top: Math.max(0, t - my),
+        right: Math.min(im.width, r + mx), bottom: Math.min(im.height, b + my)
+      };
+    } catch (e) {
+      console.warn('描画範囲を測れません。キャンバス全体を使います:', e);
+      return fallback;
+    }
+  }
+
+  // 表示高さ(px)を指定してスケールを決める（キャラの描画範囲の高さ）
   setHeight(px) {
     if (!this.model) return;
-    this.model.scale.set(px / this.naturalH);
+    this.model.scale.set(px / (this.box.bottom - this.box.top));
   }
 
   getSize() {
     if (!this.model) return { width: 0, height: 0 };
-    return { width: this.model.width, height: this.model.height };
+    const s = this.model.scale.x;
+    return { width: (this.box.right - this.box.left) * s, height: (this.box.bottom - this.box.top) * s };
   }
 
+  // キャラの描画範囲の中心を (x, y) に置く
   setPosition(x, y) {
     if (!this.model) return;
-    this.model.x = x;
-    this.model.y = y;
+    const s = this.model.scale.x;
+    this.model.x = x - ((this.box.left + this.box.right) / 2) * s;
+    this.model.y = y - ((this.box.top + this.box.bottom) / 2) * s;
   }
 
+  // キャラの描画範囲（ウィンドウ内の座標）
   getBounds() {
     if (!this.model) return null;
-    const b = this.model.getBounds();
-    return { left: b.x, top: b.y, right: b.x + b.width, bottom: b.y + b.height };
+    const s = this.model.scale.x, m = this.model;
+    return {
+      left: m.x + this.box.left * s, top: m.y + this.box.top * s,
+      right: m.x + this.box.right * s, bottom: m.y + this.box.bottom * s
+    };
   }
 
   focus(x, y) {

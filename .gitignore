@@ -14,7 +14,11 @@ assets/*
 .history/
 .vscode/*
 !.vscode/extensions.json
+!.vscode/launch.json
 *.code-workspace
+*.vsix
+*.zip
+*.patch
 
 # ログ・一時ファイル
 *.log

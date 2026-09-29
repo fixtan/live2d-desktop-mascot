@@ -51,6 +51,17 @@ const settings = (() => {
 
 function saveSettings() {
   try { localStorage.setItem('mascot-settings-v3', JSON.stringify(settings)); } catch {}
+  pushSettingsState();
+}
+
+// 設定ウィンドウへ今の状態を送る（メインが中継。閉じていてもメインが最新を覚えておく）
+function pushSettingsState() {
+  ipcRenderer.send('settings-state', {
+    settings: { ...settings },
+    bundled: listBundledModels().map((m) => m.id),
+    library: libraryModels.map((m) => m.id),
+    voicePacks: listVoicePacks()
+  });
 }
 
 // ===== レイアウト定数 =====
@@ -61,7 +72,6 @@ const MIN_H = 460;
 
 // ===== 状態 =====
 const $ = (id) => document.getElementById(id);
-const settingsModal = $('settings-modal');
 const bubble = $('bubble');
 
 const mascot = new Live2DAdapter($('stage'));
@@ -79,6 +89,7 @@ let libraryModels = [];
 
 async function refreshLibrary() {
   libraryModels = await ipcRenderer.invoke('library-list');
+  pushSettingsState();
 }
 
 function resolveModelPath(model) {
@@ -99,12 +110,10 @@ async function importModel(p) {
 
 async function removeLibraryModel() {
   const model = settings.model;
-  if (!model.startsWith('lib:')) return;
-  if (!confirm(`「${model.slice(4)}」をライブラリから削除する？`)) return;
+  if (!model.startsWith('lib:')) return; // 確認は設定ウィンドウ側で済ませてある
   await loadModel(DEFAULTS.model, { announce: false });
   await ipcRenderer.invoke('library-remove', model.slice(4));
   await refreshLibrary();
-  refreshModelSelect();
 }
 
 async function loadModel(model, { announce = true } = {}) {
@@ -124,7 +133,6 @@ async function loadModel(model, { announce = true } = {}) {
 
   settings.model = model;
   saveSettings();
-  refreshModelSelect();
   if (!settings.gaze) mascot.resetFocus();
   applyHeight(settings.height);
   if (announce) say(greeting());
@@ -256,7 +264,6 @@ function applyHeight(h) {
   h = Math.round(Math.min(1000, Math.max(200, h)));
   settings.height = h;
   saveSettings();
-  $('height-range').value = h;
 
   mascot.setHeight(h);
   const size = mascot.getSize();
@@ -336,32 +343,6 @@ function speakOS(text) {
 }
 if ('speechSynthesis' in window) speechSynthesis.getVoices();
 
-// VOICEVOXの話者一覧で選択肢を作る
-async function refreshSpeakerSelect() {
-  const sel = $('speaker-select');
-  const credit = $('voicevox-credit');
-  sel.innerHTML = '';
-  try {
-    const speakers = await ipcRenderer.invoke('voicevox-speakers');
-    if (!speakers) throw new Error('offline');
-    for (const sp of speakers) {
-      for (const st of sp.styles) {
-        const opt = new Option(`${sp.name}（${st.name}）`, st.id);
-        opt.dataset.name = sp.name;
-        sel.add(opt);
-      }
-    }
-    sel.value = String(settings.voicevoxSpeaker);
-    if (sel.selectedIndex < 0) sel.selectedIndex = 0;
-    sel.disabled = false;
-    credit.textContent = 'VOICEVOX:' + (sel.selectedOptions[0]?.dataset.name || '');
-  } catch (e) {
-    sel.add(new Option('エンジンに接続できません', ''));
-    sel.disabled = true;
-    credit.textContent = 'VOICEVOX（127.0.0.1:50021）を起動してね';
-  }
-}
-
 function greeting() {
   const h = new Date().getHours();
   if (h >= 5 && h < 10) return 'おはよう！今日もがんばろう';
@@ -424,9 +405,8 @@ const USE_SHAPE = process.platform === 'linux';
 let lastShape = '';
 
 function updateShape() {
-  const settingsOpen = settingsModal.style.display === 'block';
   let rects;
-  if (settingsOpen || isDragging) {
+  if (isDragging) {
     rects = [{ x: 0, y: 0, width: window.innerWidth, height: window.innerHeight }];
   } else {
     rects = [];
@@ -453,8 +433,7 @@ function updateShape() {
 
 function updateHit(x, y) {
   if (USE_SHAPE) { updateShape(); return; }
-  const settingsOpen = settingsModal.style.display === 'block';
-  const hit = isDragging || settingsOpen || mascot.hitTest(x, y);
+  const hit = isDragging || mascot.hitTest(x, y);
   if (hit === !ignoring) return;
   ignoring = !hit;
   ipcRenderer.send('set-ignore-mouse', ignoring);
@@ -472,7 +451,7 @@ window.addEventListener('contextmenu', (e) => {
 });
 
 window.addEventListener('mousedown', (e) => {
-  if (e.button === 0 && !settingsModal.contains(e.target)) {
+  if (e.button === 0) {
     isDragging = true;
     dragStartX = e.clientX;
     dragStartY = e.clientY;
@@ -495,7 +474,6 @@ window.addEventListener('mouseup', () => { isDragging = false; });
 // ダブルクリックと区別するため少し待つ
 let clickTimer = null;
 window.addEventListener('click', (e) => {
-  if (settingsModal.contains(e.target)) return;
   if (Math.abs(e.screenX - downScreenX) > 3 || Math.abs(e.screenY - downScreenY) > 3) return;
   if (e.detail > 1) return;
   clearTimeout(clickTimer);
@@ -507,13 +485,12 @@ window.addEventListener('click', (e) => {
 });
 
 window.addEventListener('dblclick', (e) => {
-  if (settingsModal.contains(e.target)) return;
   clearTimeout(clickTimer);
   talk();
 });
 
 window.addEventListener('wheel', (e) => {
-  if (!e.ctrlKey || settingsModal.contains(e.target)) return;
+  if (!e.ctrlKey) return;
   e.preventDefault();
   applyHeight(settings.height * (e.deltaY < 0 ? 1.08 : 1 / 1.08));
 }, { passive: false });
@@ -530,22 +507,90 @@ window.addEventListener('drop', (e) => {
   say('ZIP・フォルダ・.model3.json をドロップしてね', undefined, { tts: false });
 });
 
-// ===== メインプロセスからのイベント =====
-function openSettings() {
-  refreshModelSelect();
-  if (settings.ttsEngine === 'voicevox') refreshSpeakerSelect();
-  settingsModal.style.display = 'block';
-  ignoring = false;
-  if (USE_SHAPE) updateShape();
-  else ipcRenderer.send('set-ignore-mouse', false);
+// ===== VS Code拡張からのイベント（WebSocket → メイン → IPC） =====
+// ボイスパックで on に save / error / fixed / debug / taskOk / taskFail を書くと、その声を優先して使う
+const BRIDGE_LINES = {
+  connect: ['VS Code とつながったよ'],
+  save: ['保存したね', 'こまめな保存、えらい', 'セーブ完了！'],
+  error: (n) => [`エラーが ${n} 件あるよ`, `あれ、エラー ${n} 件…`, `エラー ${n} 件。落ち着いていこう`],
+  fixed: ['エラー全部消えた！', 'きれいになったね', 'ノーエラー！'],
+  debug: ['デバッグ開始だね', 'バグ、追いつめよう'],
+  taskOk: (name) => [`${name} 成功！`, `${name} 通ったよ`],
+  taskFail: (name, code) => [`${name} 失敗しちゃった…（exit ${code}）`]
+};
+
+const BRIDGE_COOLDOWN = 5000;       // 反応どうしの最短間隔
+const SAVE_COOLDOWN = 45000;        // 保存への反応の最短間隔
+const SAVE_CHANCE = 0.35;           // 保存に反応する確率
+let lastBridgeReact = 0;
+let lastSaveReact = 0;
+let bridgeGreeted = false;
+const diagByClient = new Map();     // client → 前回のエラー数
+
+const clip = (s, n) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+
+// scene に明示的に割り当てた声があればそれ、無ければセリフ＋しぐさ
+function react(scene, lines, { force = false } = {}) {
+  const now = Date.now();
+  if (!force && now - lastBridgeReact < BRIDGE_COOLDOWN) return;
+  if (isDragging) return;
+  lastBridgeReact = now;
+  const tagged = voices.filter((v) => v.on?.includes(scene));
+  if (tagged.length) { playVoice(pick(tagged)); return; }
+  playMotion();
+  say(pick(lines));
 }
 
-ipcRenderer.on('open-settings', openSettings);
+function onBridgeEvent({ type, payload = {}, client }) {
+  switch (type) {
+    case 'connect':
+      if (!bridgeGreeted) { bridgeGreeted = true; react('connect', BRIDGE_LINES.connect); }
+      break;
+    case 'disconnect':
+      diagByClient.delete(client);
+      break;
+    case 'save': {
+      const now = Date.now();
+      if (now - lastSaveReact < SAVE_COOLDOWN || Math.random() > SAVE_CHANCE) break;
+      lastSaveReact = now;
+      react('save', BRIDGE_LINES.save);
+      break;
+    }
+    case 'diagnostics': {
+      const errors = Math.max(0, Number(payload.errors) || 0);
+      const prev = diagByClient.get(client);
+      diagByClient.set(client, errors);
+      if (prev === undefined) break; // 接続直後のスナップショットは基準にするだけ
+      if (errors > prev) react('error', BRIDGE_LINES.error(errors));
+      else if (prev > 0 && errors === 0) react('fixed', BRIDGE_LINES.fixed, { force: true });
+      break;
+    }
+    case 'debugStart':
+      react('debug', BRIDGE_LINES.debug);
+      break;
+    case 'taskEnd': {
+      const name = clip(payload.name, 40) || 'タスク';
+      const code = Number.isInteger(payload.exitCode) ? payload.exitCode : null;
+      if (code === 0) react('taskOk', BRIDGE_LINES.taskOk(name));
+      else if (code !== null) react('taskFail', BRIDGE_LINES.taskFail(name, code), { force: true });
+      break;
+    }
+    case 'say': { // 任意のセリフ（テスト用・他ツール用）
+      const text = clip(payload.text, 200);
+      if (!text) break;
+      lastBridgeReact = Date.now();
+      playMotion();
+      say(text);
+      break;
+    }
+    default:
+      console.log('[bridge] 未対応のイベント:', type);
+  }
+}
 
-ipcRenderer.on('mode-changed', (event, on) => {
-  $('mode-select').value = on ? 'vscode' : 'free';
-});
+ipcRenderer.on('bridge-event', (event, msg) => onBridgeEvent(msg));
 
+// ===== メインプロセスからのイベント =====
 ipcRenderer.on('menu-action', (event, { type, value }) => {
   if (type === 'talk') talk();
   else if (type === 'gaze') setGaze(value);
@@ -554,11 +599,10 @@ ipcRenderer.on('menu-action', (event, { type, value }) => {
   else if (type === 'import-model') importModel();
 });
 
-// ===== 設定UI =====
+// ===== 設定（設定ウィンドウからの操作） =====
 function setSetting(key, value) {
   settings[key] = value;
   saveSettings();
-  syncSettingsUI();
 }
 
 function setGaze(on) {
@@ -572,78 +616,34 @@ function applyOpacity(val) {
   $('stage').style.opacity = val;
 }
 
-function refreshModelSelect() {
-  const sel = $('model-select');
-  sel.innerHTML = '';
-  const group = (label, items) => {
-    if (!items.length) return;
-    const g = document.createElement('optgroup');
-    g.label = label;
-    items.forEach(([text, value]) => g.appendChild(new Option(text, value)));
-    sel.appendChild(g);
-  };
-  group('同梱', listBundledModels().map((m) => [m.id, m.id]));
-  group('ライブラリ', libraryModels.map((m) => [m.id, 'lib:' + m.id]));
-  if (path.isAbsolute(settings.model)) {
-    group('外部', [['📁 ' + path.basename(settings.model), settings.model]]);
+// 型が既定値と合う時だけ受け付ける
+function applySetting(key, value) {
+  if (!(key in DEFAULTS) || typeof value !== typeof DEFAULTS[key]) return;
+  if (key === 'height') applyHeight(value);
+  else if (key === 'opacity') applyOpacity(value);
+  else if (key === 'gaze') setGaze(value);
+  else if (key === 'model' || key === 'voicePack') return; // 専用の操作で
+  else setSetting(key, value);
+}
+
+ipcRenderer.on('settings-action', (event, a = {}) => {
+  switch (a.type) {
+    case 'set': applySetting(a.key, a.value); break;
+    case 'model': if (typeof a.value === 'string') loadModel(a.value); break;
+    case 'import-model': importModel(); break;
+    case 'select-model-file': selectModelFile(); break;
+    case 'remove-model': removeLibraryModel(); break;
+    case 'voice-pack': loadVoicePack(typeof a.value === 'string' ? a.value : ''); break;
+    case 'test-voice': if (!playVoice()) say('ボイスがないよ', undefined, { tts: false }); break;
+    case 'test-tts':
+      playMotion();
+      say(`${greeting()}\n${timeText()}`, undefined, { tts: false });
+      speak(`${greeting()}。${timeText()}`);
+      break;
   }
-  group('操作', [['ZIPを取り込む…', '__import__'], ['model3.jsonを直接開く…', '__file__']]);
-  sel.value = settings.model;
-  $('btn-remove-model').disabled = !settings.model.startsWith('lib:');
-}
-
-function refreshVoiceSelect() {
-  const sel = $('voice-pack-select');
-  sel.innerHTML = '';
-  sel.add(new Option('なし', ''));
-  for (const name of listVoicePacks()) sel.add(new Option(name, name));
-  sel.value = settings.voicePack;
-}
-
-function syncSettingsUI() {
-  $('height-range').value = settings.height;
-  $('opacity-range').value = settings.opacity;
-  $('gaze-check').checked = settings.gaze;
-  $('voice-check').checked = settings.voice;
-  $('engine-select').value = settings.ttsEngine;
-  $('speed-range').value = settings.voicevoxSpeed;
-  $('voicevox-settings').style.display = settings.ttsEngine === 'voicevox' ? 'block' : 'none';
-  $('events-check').checked = settings.events;
-  $('chime-check').checked = settings.chime;
-}
-
-$('close-settings').onclick = () => { settingsModal.style.display = 'none'; };
-$('model-select').onchange = (e) => {
-  const v = e.target.value;
-  if (v === '__file__') { e.target.value = settings.model; selectModelFile(); }
-  else if (v === '__import__') { e.target.value = settings.model; importModel(); }
-  else loadModel(v);
-};
-$('btn-open-library').onclick = () => ipcRenderer.send('library-open');
-$('btn-remove-model').onclick = removeLibraryModel;
-$('voice-pack-select').onchange = (e) => loadVoicePack(e.target.value);
-$('btn-test-voice').onclick = () => { if (!playVoice()) say('ボイスがないよ', undefined, { tts: false }); };
-$('mode-select').onchange = (e) => ipcRenderer.send('set-tracking-mode', e.target.value === 'vscode');
-$('height-range').oninput = (e) => applyHeight(parseFloat(e.target.value));
-$('opacity-range').oninput = (e) => applyOpacity(e.target.value);
-$('gaze-check').onchange = (e) => setGaze(e.target.checked);
-$('voice-check').onchange = (e) => setSetting('voice', e.target.checked);
-$('engine-select').onchange = (e) => {
-  setSetting('ttsEngine', e.target.value);
-  if (e.target.value === 'voicevox') refreshSpeakerSelect();
-};
-$('speaker-select').onchange = (e) => {
-  setSetting('voicevoxSpeaker', Number(e.target.value));
-  $('voicevox-credit').textContent = 'VOICEVOX:' + (e.target.selectedOptions[0]?.dataset.name || '');
-};
-$('speed-range').oninput = (e) => setSetting('voicevoxSpeed', parseFloat(e.target.value));
-$('btn-test-tts').onclick = () => { playMotion(); say(`${greeting()}\n${timeText()}`, undefined, { tts: false }); speak(`${greeting()}。${timeText()}`); };
-$('events-check').onchange = (e) => setSetting('events', e.target.checked);
-$('chime-check').onchange = (e) => setSetting('chime', e.target.checked);
+});
 
 // ===== 起動 =====
-syncSettingsUI();
-refreshVoiceSelect();
 applyOpacity(settings.opacity);
 loadVoicePack(settings.voicePack);
 refreshLibrary().then(() => loadModel(settings.model));
