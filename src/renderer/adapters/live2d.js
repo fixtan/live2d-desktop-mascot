@@ -4,6 +4,20 @@
 //   focus(x, y) / resetFocus() / listMotions() / playMotion(m) / setExpression(name)
 //   setMouth(level) / setModelSound(on) / hitTest(x, y) / dispose()
 
+// file:// でも読めるよう XHR で取得（fetch は file: を扱えない）
+function xhrGet(url, responseType) {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open('GET', url);
+    x.responseType = responseType;
+    x.onload = () => ((x.status === 0 || x.status < 400) && x.response
+      ? resolve(x.response)
+      : reject(new Error(`読み込めません（${x.status}）: ${url}`)));
+    x.onerror = () => reject(new Error('読み込めません: ' + url));
+    x.send();
+  });
+}
+
 class Live2DAdapter {
   constructor(canvas) {
     this.app = new PIXI.Application({
@@ -24,6 +38,7 @@ class Live2DAdapter {
 
   // 読み込みに成功した時だけ差し替える（失敗時は今のモデルが残る）
   async load(url) {
+    await Live2DAdapter.checkMocVersion(url);
     const model = await PIXI.live2d.Live2DModel.from(url, { autoInteract: false });
 
     if (this.model) {
@@ -38,6 +53,25 @@ class Live2DAdapter {
     this.app.stage.addChild(model);
     model.internalModel.on('beforeModelUpdate', this._onBeforeUpdate);
     this._ensureIdleGroup();
+  }
+
+  // moc3 の形式バージョンが Cubism Core の対応範囲か確かめる。
+  // ヘッダーは "MOC3" の次の 1 バイトがバージョン（Cubism 5.3 で書き出すと 6）。
+  // 対応外だと Core が "Unknown error" で落ちるだけなので、先に分かる形で止める
+  static async checkMocVersion(settingsUrl) {
+    const json = await xhrGet(settingsUrl, 'json');
+    const moc = json?.FileReferences?.Moc;
+    if (!moc) return;
+    const bytes = new Uint8Array(await xhrGet(new URL(moc, settingsUrl).href, 'arraybuffer'), 0, 5);
+    if (String.fromCharCode(...bytes.slice(0, 4)) !== 'MOC3') return; // 判定できない時は Core に任せる
+    const version = bytes[4];
+    const latest = window.Live2DCubismCore?.Version?.csmGetLatestMocVersion?.() ?? 5;
+    if (version > latest) {
+      const err = new Error(`moc3 ver ${version} には未対応です（このアプリは ver ${latest} まで）`);
+      err.code = 'UNSUPPORTED_MOC';
+      err.mocVersion = version;
+      throw err;
+    }
   }
 
   // "Idle" グループが無いモデル（受付版ハルなど）は、ファイル名に idle を含む

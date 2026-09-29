@@ -124,7 +124,10 @@ async function loadModel(model, { announce = true } = {}) {
   } catch (err) {
     console.error('モデル読み込みエラー:', err);
     if (model !== DEFAULTS.model) {
-      say('モデルを読み込めなかったよ…\nデフォルトに戻すね', undefined, { tts: false });
+      const msg = err.code === 'UNSUPPORTED_MOC'
+        ? 'このモデルは Cubism 5.3 以降の形式で、\nまだ対応していないよ…\nデフォルトに戻すね'
+        : 'モデルを読み込めなかったよ…\nデフォルトに戻すね';
+      say(msg, 6000, { tts: false });
       return loadModel(DEFAULTS.model, { announce: false });
     }
     say('デフォルトモデルが見つからないよ\nassets を確認して', undefined, { tts: false });
