@@ -1,0 +1,54 @@
+{
+  "name": "live2d-mascot-bridge",
+  "displayName": "Live2D Mascot Bridge",
+  "description": "Live2D Desktop Mascot に VS Code のイベント（保存・エラー・デバッグ・タスク）を送る",
+  "version": "0.1.0",
+  "publisher": "fixtan",
+  "author": "lain",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fixtan/live2d-desktop-mascot.git",
+    "directory": "vscode-extension"
+  },
+  "engines": {
+    "vscode": "^1.101.0"
+  },
+  "categories": ["Other"],
+  "main": "./extension.js",
+  "extensionKind": ["ui"],
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "commands": [
+      { "command": "live2dMascot.reconnect", "title": "再接続", "category": "Live2D Mascot" },
+      { "command": "live2dMascot.say", "title": "しゃべらせる…", "category": "Live2D Mascot" }
+    ],
+    "configuration": {
+      "title": "Live2D Mascot",
+      "properties": {
+        "live2dMascot.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "マスコットにイベントを送る"
+        },
+        "live2dMascot.bridgeFile": {
+          "type": "string",
+          "default": "",
+          "description": "bridge.json の場所（空なら OS ごとの既定の場所）"
+        },
+        "live2dMascot.events": {
+          "type": "object",
+          "default": { "save": true, "diagnostics": true, "debug": true, "task": true },
+          "properties": {
+            "save": { "type": "boolean" },
+            "diagnostics": { "type": "boolean" },
+            "debug": { "type": "boolean" },
+            "task": { "type": "boolean" }
+          },
+          "additionalProperties": false,
+          "description": "送るイベントの種類"
+        }
+      }
+    }
+  }
+}

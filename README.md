@@ -72,6 +72,7 @@ assets/<モデル>/            同梱モデル
 assets/voices/<名前>/       ボイスパック
 vendor/                     Cubism Core
 scripts/bridge-send.js      連携のテスト送信
+vscode-extension/           VS Code 拡張（Live2D Mascot Bridge）
 ```
 
 ### ボイスパック
@@ -94,6 +95,7 @@ scripts/bridge-send.js      連携のテスト送信
 ### VS Code 連携（WebSocket）
 
 VS Code 拡張などから、保存・エラー・タスク結果などのイベントを受け取って反応します。
+VS Code 側の拡張は [vscode-extension/](vscode-extension/) にあります。
 
 設定フォルダ（トレイの「📂 設定フォルダを開く」）
 
@@ -131,8 +133,9 @@ VS Code 拡張などから、保存・エラー・タスク結果などのイベ
 テスト送信：
 
 ```
-node scripts/bridge-send.js say '{"text":"テストだよ"}'
-node scripts/bridge-send.js diagnostics '{"errors":0}' '{"errors":3}' '{"errors":0}'
+node scripts/bridge-send.js say テストだよ
+node scripts/bridge-send.js diagnostics errors=0 errors=3 errors=0
+node scripts/bridge-send.js taskEnd name=build,exitCode=1
 ```
 
 ## クレジット

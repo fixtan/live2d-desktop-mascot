@@ -6,6 +6,26 @@ const AdmZip = require('adm-zip');
 
 const MODEL_EXT = /\.model3\.json$/i;
 
+// ZIP 内のファイル名の文字コード
+// 日本語版 Windows のエクスプローラー等で作った ZIP は Shift_JIS で、UTF-8 の印（EFS フラグ）も無い。
+// UTF-8 として厳密に読めなければ Shift_JIS とみなす。Mac で作った ZIP の NFD（濁点分離）は NFC にそろえる
+const utf8Strict = new TextDecoder('utf-8', { fatal: true });
+let sjis = null;
+try { sjis = new TextDecoder('shift_jis'); } catch { console.warn('[library] Shift_JIS デコーダーが使えません'); }
+
+function decodeZipName(buf) {
+  let name;
+  try { name = utf8Strict.decode(buf); }
+  catch { name = sjis ? sjis.decode(buf) : Buffer.from(buf).toString('latin1'); }
+  return name.replace(/\\/g, '/').normalize('NFC');
+}
+
+const ZIP_DECODER = {
+  efs: false,
+  encode: (s) => Buffer.from(s, 'utf8'),
+  decode: decodeZipName
+};
+
 function libraryDir() {
   const dir = path.join(app.getPath('userData'), 'models');
   fs.mkdirSync(dir, { recursive: true });
@@ -37,7 +57,7 @@ function findModelFile(dir, depth = 0) {
 
 // ZIP: model3.json のあるフォルダ以下だけを展開
 function importZip(zipPath) {
-  const zip = new AdmZip(zipPath);
+  const zip = new AdmZip(zipPath, { decoder: ZIP_DECODER });
   const entries = zip.getEntries();
   const modelEntry = entries.find((e) => !e.isDirectory && MODEL_EXT.test(e.entryName) && !e.entryName.startsWith('__MACOSX'));
   if (!modelEntry) throw new Error('ZIPの中に .model3.json が見つかりません');

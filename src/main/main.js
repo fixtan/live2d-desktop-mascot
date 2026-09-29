@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, screen, dialog, shell } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const tracker = require('./tracker');
 const library = require('./library');
 const { loadConfig } = require('./config');
@@ -13,6 +14,8 @@ let modelInset = null; // ウィンドウ内でのキャラ描画範囲 {left, t
 let cursorTimer = null;
 let tray = null;
 let creditsWindow = null;
+let settingsWindow = null;
+let lastSettingsState = null; // レンダラーから届いた最新の設定状態（設定ウィンドウを開いた直後に渡す）
 let bridge = null;
 
 const APP_ROOT = path.join(__dirname, '../..');
@@ -119,7 +122,7 @@ function createTray() {
     { label: '位置をリセット', click: resetPosition },
     { type: 'separator' },
     { label: '💬 話しかける', click: () => send('talk') },
-    { label: '⚙️ 設定を開く', click: () => { mainWindow.show(); mainWindow.webContents.send('open-settings'); } },
+    { label: '⚙️ 設定を開く', click: openSettingsWindow },
     { label: '📜 クレジット', click: openCredits },
     { label: '📂 設定フォルダを開く', click: () => shell.openPath(app.getPath('userData')) },
     { type: 'separator' },
@@ -166,6 +169,70 @@ function openCredits() {
   });
   creditsWindow.on('closed', () => { creditsWindow = null; });
 }
+
+// ===== 設定ウィンドウ =====
+// 設定の値と反映はマスコット側（app.js）が持つ。設定ウィンドウは操作を送り、状態を受け取って表示するだけ
+//   設定ウィンドウ → 'settings-action' → メイン → マスコット
+//   マスコット → 'settings-state' → メイン → 設定ウィンドウ
+const SETTINGS_W = 340, SETTINGS_H = 760;
+
+function settingsWindowFile() { return path.join(app.getPath('userData'), 'settings-window.json'); }
+
+function loadSettingsBounds() {
+  try {
+    const b = JSON.parse(fs.readFileSync(settingsWindowFile(), 'utf8'));
+    if (![b.x, b.y, b.width, b.height].every(Number.isFinite)) return null;
+    // 画面構成が変わって見えない位置になっていたら使わない
+    const visible = screen.getAllDisplays().some(({ workArea: w }) =>
+      b.x < w.x + w.width - 40 && b.x + b.width > w.x + 40 && b.y >= w.y - 10 && b.y < w.y + w.height - 40);
+    return visible ? b : null;
+  } catch { return null; }
+}
+
+// 初回：マスコットの横（左に空きがあれば左、無ければ右）
+function defaultSettingsBounds() {
+  const m = mainWindow.getBounds();
+  const wa = screen.getDisplayMatching(m).workArea;
+  const w = SETTINGS_W, h = Math.min(SETTINGS_H, wa.height);
+  let x = m.x - w - 8;
+  if (x < wa.x) x = Math.min(m.x + m.width + 8, wa.x + wa.width - w);
+  const y = Math.max(wa.y, Math.min(m.y + m.height - h, wa.y + wa.height - h));
+  return { x: Math.round(x), y: Math.round(y), width: w, height: h };
+}
+
+function openSettingsWindow() {
+  if (settingsWindow) { settingsWindow.show(); settingsWindow.focus(); return; }
+  if (mainWindow && !mainWindow.isVisible()) mainWindow.show();
+  settingsWindow = new BrowserWindow({
+    ...(loadSettingsBounds() || defaultSettingsBounds()),
+    minWidth: 300,
+    minHeight: 400,
+    title: 'マスコット設定',
+    autoHideMenuBar: true,
+    alwaysOnTop: true,
+    backgroundColor: '#252526',
+    webPreferences: { nodeIntegration: true, contextIsolation: false }
+  });
+  settingsWindow.loadFile(path.join(__dirname, '../renderer/settings.html'));
+  settingsWindow.on('close', () => {
+    try { fs.writeFileSync(settingsWindowFile(), JSON.stringify(settingsWindow.getBounds())); } catch {}
+  });
+  settingsWindow.on('closed', () => { settingsWindow = null; });
+}
+
+function notifyTrackingMode() {
+  settingsWindow?.webContents.send('tracking-changed', { on: isTrackingMode, supported: tracker.supported });
+}
+
+ipcMain.on('settings-state', (event, state) => {
+  lastSettingsState = state;
+  settingsWindow?.webContents.send('settings-state', state);
+});
+ipcMain.handle('settings-get-state', () => lastSettingsState);
+ipcMain.on('settings-action', (event, action) => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('settings-action', action);
+});
+ipcMain.handle('tracking-get', () => ({ on: isTrackingMode, supported: tracker.supported }));
 
 // 画面全体のマウス位置をウィンドウ相対座標でレンダラーへ送る（視線追従・ヒット判定用）
 function startCursorTracking() {
@@ -336,10 +403,7 @@ ipcMain.on('show-context-menu', (event, state = {}) => {
     },
     { type: 'separator' },
     { label: '📦 モデルを取り込む（ZIP）…', click: () => send('import-model') },
-    {
-      label: '⚙️ 設定を開く',
-      click: () => mainWindow.webContents.send('open-settings')
-    },
+    { label: '⚙️ 設定を開く', click: openSettingsWindow },
     {
       label: '📌 VS Code固定モード',
       type: 'checkbox',
@@ -347,7 +411,7 @@ ipcMain.on('show-context-menu', (event, state = {}) => {
       enabled: tracker.supported,
       click: (item) => {
         isTrackingMode = item.checked;
-        mainWindow.webContents.send('mode-changed', isTrackingMode);
+        notifyTrackingMode();
         clampToVSCode();
       }
     },
@@ -372,6 +436,7 @@ ipcMain.on('move-window', (event, { mouseX, mouseY }) => {
 
 ipcMain.on('set-tracking-mode', (event, enable) => {
   isTrackingMode = enable && tracker.supported;
+  notifyTrackingMode();
   clampToVSCode();
 });
 

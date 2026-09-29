@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 // マスコットへイベントを送るテスト用クライアント（拡張ができるまでの動作確認用）
 //
-//   node scripts/bridge-send.js say '{"text":"テストだよ"}'
-//   node scripts/bridge-send.js diagnostics '{"errors":0,"warnings":0}' '{"errors":3,"warnings":1}' '{"errors":0,"warnings":0}'
-//   node scripts/bridge-send.js taskEnd '{"name":"build","exitCode":1}'
+//   node scripts/bridge-send.js say テストだよ
+//   node scripts/bridge-send.js diagnostics errors=0 errors=3 errors=0
+//   node scripts/bridge-send.js taskEnd name=build,exitCode=1
+//   node scripts/bridge-send.js debugStart
 //
-// 同じ種類のイベントを複数並べると、1本の接続で 1.5 秒おきに順に送る。
+// payload は key=value をカンマ区切り（数値・true/false は変換）。JSON（{...}）もそのまま使える。
+// say だけは、ただの文字列を text として扱う。
+// payload を複数並べると、1本の接続で 1.5 秒おきに順に送る。
 // bridge.json の場所は MASCOT_BRIDGE_FILE で上書きできる。
 const fs = require('fs');
 const os = require('os');
@@ -24,9 +27,37 @@ function bridgeFile() {
   }
 }
 
-const [type, ...payloads] = process.argv.slice(2);
+const [type, ...args] = process.argv.slice(2);
 if (!type) {
-  console.error('usage: bridge-send.js <type> [payloadJSON ...]');
+  console.error('usage: bridge-send.js <type> [key=value,... | JSON | text(say)] ...');
+  process.exit(2);
+}
+
+function parseValue(v) {
+  if (v === 'true') return true;
+  if (v === 'false') return false;
+  if (v !== '' && !Number.isNaN(Number(v))) return Number(v);
+  return v;
+}
+
+function parsePayload(arg) {
+  if (arg.trim().startsWith('{')) return JSON.parse(arg);
+  if (type === 'say' && !/^text=/.test(arg)) return { text: arg };
+  const out = {};
+  for (const pair of arg.split(',')) {
+    const i = pair.indexOf('=');
+    if (i < 1) throw new Error(`key=value の形になっていません: ${pair}`);
+    out[pair.slice(0, i).trim()] = parseValue(pair.slice(i + 1).trim());
+  }
+  return out;
+}
+
+// 接続前に全部パースしておく（途中で落ちないように）
+let payloads;
+try {
+  payloads = args.length ? args.map(parsePayload) : [{}];
+} catch (e) {
+  console.error('payload を読めません:', e.message);
   process.exit(2);
 }
 
@@ -46,10 +77,9 @@ ws.on('message', async (data) => {
   const msg = JSON.parse(data.toString());
   if (msg.type !== 'welcome') return;
   console.log('welcome:', msg.payload);
-  const list = payloads.length ? payloads : ['{}'];
-  for (let i = 0; i < list.length; i++) {
+  for (let i = 0; i < payloads.length; i++) {
     if (i) await new Promise((r) => setTimeout(r, 1500));
-    const payload = JSON.parse(list[i]);
+    const payload = payloads[i];
     ws.send(JSON.stringify({ v: 1, type, payload, ts: Date.now() }));
     console.log('sent:', type, payload);
   }
