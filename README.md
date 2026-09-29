@@ -64,6 +64,7 @@ VS Code のウィンドウ内に常駐する Live2D デスクトップマスコ�
 
 対応モデル：Live2D Cubism 3 / 4（.model3.json）
 
+
 ## 開発
 
 ```
