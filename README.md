@@ -70,7 +70,7 @@ VS Code のウィンドウ内に常駐する Live2D デスクトップマスコ�
 ```
 npm install
 npm start            # 起動
-npm start -- --debug # DevTools付き
+npm start -- --devtools # DevTools付き
 npm run dist:win     # Windows版ビルド（dist/）
 npm run dist:mac     # macOS版ビルド（Mac上で実行）
 npm run dist:linux   # Linux版ビルド（Linux上で実行）

@@ -20,6 +20,10 @@ let bridge = null;
 
 const APP_ROOT = path.join(__dirname, '../..');
 
+// Linux：Electron 38 から Wayland セッションではネイティブ Wayland で動く。
+// Wayland ではウィンドウ位置の取得・移動、画面全体のカーソル位置、setShape が使えないため XWayland に固定する
+if (process.platform === 'linux') app.commandLine.appendSwitch('ozone-platform', 'x11');
+
 // 多重起動防止
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -51,6 +55,7 @@ function createWindow() {
     resizable: true,
     skipTaskbar: true, // タスクバーには出さず、トレイから操作する
     minimizable: false, // 最小化させない（隠すのはトレイ／メニューから）
+    roundedCorners: false, // Electron 43 から Linux でも既定 true。透明窓の角でキャラが欠けないように
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
@@ -58,11 +63,8 @@ function createWindow() {
   });
 
   // レンダラーのログ・エラーをターミナルに出す
-  mainWindow.webContents.on('console-message', (e, level, message, line, sourceId) => {
-    // Electron 35+ は引数がイベントオブジェクトにまとまる
-    if (message === undefined) ({ level, message, lineNumber: line, sourceId } = e);
-    const tag = typeof level === 'string' ? level.toUpperCase() : (['LOG', 'WARN', 'ERROR'][level - 1] || 'DEBUG');
-    console.log(`[renderer ${tag}] ${message} (${path.basename(sourceId || '')}:${line})`);
+  mainWindow.webContents.on('console-message', ({ level, message, lineNumber, sourceId }) => {
+    console.log(`[renderer ${String(level).toUpperCase()}] ${message} (${path.basename(sourceId || '')}:${lineNumber})`);
   });
   mainWindow.webContents.on('did-fail-load', (e, code, desc, url) => {
     console.error('[load failed]', code, desc, url);
@@ -79,8 +81,8 @@ function createWindow() {
     mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
   }
 
-  // npm start -- --debug で DevTools を別窓で開く
-  if (process.argv.includes('--debug')) {
+  // npm start -- --devtools で DevTools を別窓で開く（--debug は Node のフラグとして弾かれる）
+  if (process.argv.includes('--devtools')) {
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   }
 
