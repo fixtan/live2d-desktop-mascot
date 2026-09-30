@@ -46,13 +46,21 @@ const DEFAULTS = {
   chime: true
 };
 
+// キャラごとの設定はメインが characters.json に持つ（窓は index.html?id=c1 のように1キャラ1枚）。
+// 最初の起動の1体目だけ、以前の版の localStorage の設定を引き継ぐ
+const init = ipcRenderer.sendSync('character-init') || { settings: null, migrate: false, primary: true };
+let isPrimary = init.primary; // 代表：VS Code のイベントと時報に反応する
+
 const settings = (() => {
-  try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem('mascot-settings-v3') || '{}') }; }
-  catch { return { ...DEFAULTS }; }
+  let saved = init.settings;
+  if (!saved && init.migrate) {
+    try { saved = JSON.parse(localStorage.getItem('mascot-settings-v3') || 'null'); } catch {}
+  }
+  return { ...DEFAULTS, ...(saved || {}) };
 })();
 
+// 保存は状態の送信を兼ねる（メインが characters.json に書く）
 function saveSettings() {
-  try { localStorage.setItem('mascot-settings-v3', JSON.stringify(settings)); } catch {}
   pushSettingsState();
 }
 
@@ -133,6 +141,16 @@ async function refreshLibrary() {
   pushSettingsState();
 }
 
+// ライブラリ・モーションはキャラ共通。別のキャラが取り込み・削除した時に届く
+ipcRenderer.on('library-changed', async () => {
+  await refreshLibrary();
+  const m = settings.model;
+  if (m.startsWith('lib:') && !libraryModels.some((x) => x.id === m.slice(4))) {
+    loadModel(DEFAULTS.model, { announce: false }); // 使っていたモデルが消された
+  }
+});
+ipcRenderer.on('motions-changed', () => refreshMotions());
+
 function resolveModelPath(model) {
   if (!model) return null;
   if (model.startsWith('lib:')) return libraryModels.find((m) => m.id === model.slice(4))?.path || null;
@@ -185,7 +203,7 @@ async function removeLibraryModel() {
   await refreshLibrary();
 }
 
-async function loadModel(model, { announce = true } = {}) {
+async function loadModel(model, { announce = true, auto = false } = {}) {
   const p = resolveModelPath(model);
   try {
     if (!p || !fs.existsSync(p)) throw new Error('model not found: ' + model);
@@ -208,7 +226,7 @@ async function loadModel(model, { announce = true } = {}) {
   if (!settings.gaze) mascot.resetFocus();
   applyHeight(settings.height);
   applyMotions();
-  if (announce) say(greeting());
+  if (announce) say(greeting(), undefined, { auto });
   return true;
 }
 
@@ -238,6 +256,33 @@ function loadVoicePack(name) {
     console.warn('ボイスパック読み込み失敗:', e);
   }
 }
+
+// ===== 話す順番（複数キャラで同時にしゃべらないように） =====
+// しゃべる前にメインへ申し出る。自動（auto）は誰かが話し中なら見送り、手動は相手を止めて割り込む。
+// 吹き出しが消えて声も終わったら speech-end
+let speaking = false;
+
+function claimSpeech(manual) {
+  if (!ipcRenderer.sendSync('speech-claim', !!manual)) return false;
+  speaking = true;
+  return true;
+}
+
+function maybeEndSpeech() {
+  if (!speaking) return;
+  if (bubble.classList.contains('show') || currentSource) return;
+  if ('speechSynthesis' in window && speechSynthesis.speaking) return;
+  speaking = false;
+  ipcRenderer.send('speech-end');
+}
+
+// 手動で割り込まれた
+ipcRenderer.on('speech-stop', () => {
+  speaking = false;
+  stopVoice();
+  clearTimeout(bubbleTimer);
+  bubble.classList.remove('show');
+});
 
 // ===== 音声再生（WebAudio。音量から口パクを作る） =====
 let audioCtx = null;
@@ -303,6 +348,7 @@ async function playAudioData(data, token) {
     currentSource = null;
     cancelAnimationFrame(lipRAF);
     mascot.setMouth(null);
+    maybeEndSpeech();
   };
   currentSource = src;
   src.start();
@@ -315,8 +361,9 @@ function voicesFor(scene) {
 }
 
 // 声＋字幕＋しぐさ。しぐさはファイル名の部分一致で探し、無ければ適当に選ぶ
-function playVoice(v = pick(voices)) {
+function playVoice(v = pick(voices), { auto = false } = {}) {
   if (!v) return false;
+  if (!claimSpeech(!auto)) return false;
   stopVoice();
   const token = playToken;
 
@@ -326,9 +373,9 @@ function playVoice(v = pick(voices)) {
 
   fs.promises.readFile(v.abs)
     .then((data) => playAudioData(data, token))
-    .catch((e) => console.warn('ボイス再生失敗:', e));
+    .catch((e) => { console.warn('ボイス再生失敗:', e); maybeEndSpeech(); });
 
-  if (v.text) say(v.text, undefined, { tts: false });
+  if (v.text) say(v.text, undefined, { tts: false, auto });
   return true;
 }
 
@@ -373,13 +420,19 @@ function positionBubble() {
   bubble.style.top = Math.max(4, b.top - bubble.offsetHeight - 10) + 'px';
 }
 
-function say(text, ms, { tts = true } = {}) {
+// auto：自動の発言（ランダム・時報・VS Code・起動時のあいさつ）。他のキャラが話し中なら言わない
+function say(text, ms, { tts = true, auto = false } = {}) {
+  if (!claimSpeech(!auto)) return false;
   bubble.textContent = text;
   bubble.classList.add('show');
   positionBubble();
   clearTimeout(bubbleTimer);
-  bubbleTimer = setTimeout(() => bubble.classList.remove('show'), ms || Math.max(3000, text.length * 180));
+  bubbleTimer = setTimeout(() => {
+    bubble.classList.remove('show');
+    maybeEndSpeech();
+  }, ms || Math.max(3000, text.length * 180));
   if (tts && settings.voice) speak(text);
+  return true;
 }
 
 // 自作セリフの読み上げ。VOICEVOXが使えなければOS音声に切り替える
@@ -412,6 +465,7 @@ function speakOS(text) {
   if (v) u.voice = v;
   u.pitch = 1.3;
   u.rate = 1.1;
+  u.onend = u.onerror = maybeEndSpeech;
   speechSynthesis.speak(u);
 }
 if ('speechSynthesis' in window) speechSynthesis.getVoices();
@@ -449,10 +503,10 @@ function scheduleRandomEvent() {
     if (settings.events && !isDragging) {
       const idleVoices = voicesFor('idle');
       if (idleVoices.length && Math.random() < 0.5) {
-        playVoice(pick(idleVoices));
+        playVoice(pick(idleVoices), { auto: true });
       } else {
         playMotion();
-        if (Math.random() < 0.5) say(pick(IDLE_LINES));
+        if (Math.random() < 0.5) say(pick(IDLE_LINES), undefined, { auto: true });
       }
     }
     scheduleRandomEvent();
@@ -460,15 +514,16 @@ function scheduleRandomEvent() {
 }
 scheduleRandomEvent();
 
-// 時報（毎時0分）
+// 時報（毎時0分）。代表だけ
 let lastChimeHour = new Date().getHours();
 setInterval(() => {
   const d = new Date();
   if (d.getMinutes() !== 0 || d.getHours() === lastChimeHour) return;
   lastChimeHour = d.getHours();
-  if (!settings.chime) return;
+  if (!settings.chime || !isPrimary) return;
+  if (!claimSpeech(false)) return;
   playMotion();
-  say(`${d.getHours()}時になったよ`);
+  say(`${d.getHours()}時になったよ`, undefined, { auto: true });
 }, 15000);
 
 // ===== クリック透過 =====
@@ -606,11 +661,12 @@ function react(scene, lines, { force = false } = {}) {
   const now = Date.now();
   if (!force && now - lastBridgeReact < BRIDGE_COOLDOWN) return;
   if (isDragging) return;
+  if (!claimSpeech(false)) return; // 他のキャラが話し中
   lastBridgeReact = now;
   const tagged = voices.filter((v) => v.on?.includes(scene));
-  if (tagged.length) { playVoice(pick(tagged)); return; }
+  if (tagged.length) { playVoice(pick(tagged), { auto: true }); return; }
   playMotion();
-  say(pick(lines));
+  say(pick(lines), undefined, { auto: true });
 }
 
 function onBridgeEvent({ type, payload = {}, client }) {
@@ -661,6 +717,7 @@ function onBridgeEvent({ type, payload = {}, client }) {
 }
 
 ipcRenderer.on('bridge-event', (event, msg) => onBridgeEvent(msg));
+ipcRenderer.on('role', (event, { primary }) => { isPrimary = primary; });
 
 // ===== メインプロセスからのイベント =====
 ipcRenderer.on('menu-action', (event, { type, value }) => {
@@ -718,4 +775,4 @@ ipcRenderer.on('settings-action', (event, a = {}) => {
 // ===== 起動 =====
 applyOpacity(settings.opacity);
 loadVoicePack(settings.voicePack);
-Promise.all([refreshLibrary(), refreshMotions()]).then(() => loadModel(settings.model));
+Promise.all([refreshLibrary(), refreshMotions()]).then(() => loadModel(settings.model, { auto: true }));

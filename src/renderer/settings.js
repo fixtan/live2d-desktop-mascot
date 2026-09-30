@@ -1,6 +1,7 @@
 // 設定ウィンドウ。値は持たず、操作をマスコットへ送り、返ってきた状態を表示する
 //   操作：ipcRenderer.send('settings-action', { type, key?, value? })
-//   状態：'settings-state' { settings, bundled, library, voicePacks }
+//   状態：'settings-state' { settings, bundled, library, voicePacks, target, primary, characters }
+//   どのキャラの設定を出すかはメインが持つ（settings-select-character で切り替え）
 const { ipcRenderer } = require('electron');
 const path = require('path');
 const { importLabel } = require('../shared/formats');
@@ -34,6 +35,16 @@ function fillModelSelect(s) {
   sel.value = s.settings.model;
 }
 
+function fillCharacterSelect(s) {
+  const sel = $('character-select');
+  if (idle(sel)) {
+    sel.innerHTML = '';
+    for (const c of s.characters) sel.add(new Option(c.label, c.id));
+    sel.value = s.target;
+  }
+  $('btn-remove-character').disabled = s.characters.length <= 1;
+}
+
 function fillVoiceSelect(s) {
   const sel = $('voice-pack-select');
   if (!idle(sel)) return;
@@ -49,6 +60,7 @@ function render(s) {
   state = s;
   const st = s.settings;
 
+  fillCharacterSelect(s);
   fillModelSelect(s);
   $('btn-remove-model').disabled = !st.model.startsWith('lib:');
   fillVoiceSelect(s);
@@ -66,6 +78,9 @@ function render(s) {
   $('voice-check').checked = st.voice;
   $('events-check').checked = st.events;
   $('chime-check').checked = st.chime;
+  $('chime-check').disabled = !s.primary;
+  $('chime-row').classList.toggle('disabled', !s.primary);
+  $('chime-note').textContent = s.primary ? '' : '（代表のみ）';
 
   $('voicevox-settings').style.display = st.ttsEngine === 'voicevox' ? 'block' : 'none';
   if (st.ttsEngine === 'voicevox' && prevEngine !== 'voicevox') refreshSpeakers();
@@ -107,6 +122,16 @@ function renderMode({ on, supported }) {
 }
 
 // ===== 操作 =====
+$('character-select').onchange = (e) => {
+  e.target.blur();
+  ipcRenderer.send('settings-select-character', e.target.value);
+};
+$('btn-add-character').onclick = () => ipcRenderer.send('character-add');
+$('btn-remove-character').onclick = () => {
+  if (!state || state.characters.length <= 1) return;
+  const c = state.characters.find((x) => x.id === state.target);
+  if (confirm(`「${c?.label || state.target}」を消す？`)) ipcRenderer.send('character-remove', state.target);
+};
 $('model-select').onchange = (e) => {
   const v = e.target.value;
   e.target.blur();
