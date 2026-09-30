@@ -24,6 +24,11 @@ const APP_ROOT = path.join(__dirname, '../..');
 // Wayland ではウィンドウ位置の取得・移動、画面全体のカーソル位置、setShape が使えないため XWayland に固定する
 if (process.platform === 'linux') app.commandLine.appendSwitch('ozone-platform', 'x11');
 
+// GPU が使えない環境（リモートデスクトップ・VM）では WebGL が拒否されて何も描けない。
+// Chromium は SwiftShader（ソフトウェア描画）への自動フォールバックをやめたので明示的に許可する。
+// GPU がある環境では使われない。読み込むのはローカルのファイルだけなので "unsafe" の懸念（外部ページの JIT）は当たらない
+app.commandLine.appendSwitch('enable-unsafe-swiftshader');
+
 // 多重起動防止
 if (!app.requestSingleInstanceLock()) {
   app.quit();
