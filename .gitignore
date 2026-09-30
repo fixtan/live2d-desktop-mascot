@@ -8,6 +8,7 @@ vendor/*
 !vendor/README.md
 assets/*
 !assets/voices/
+!assets/motions/
 !assets/tray.png
 
 # エディタ・拡張機能
