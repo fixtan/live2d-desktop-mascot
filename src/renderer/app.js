@@ -2,18 +2,19 @@ const { ipcRenderer, webUtils } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { pathToFileURL, fileURLToPath } = require('url');
+const { formatOf, isModelFile, modelFileLabel } = require('../shared/formats');
 
 // ===== パス =====
 const ASSETS_DIR = fileURLToPath(new URL('../../assets/', location.href));
 const VOICES_DIR = path.join(ASSETS_DIR, 'voices');
 
-// assets/<name>/*.model3.json を同梱モデルとして列挙
+// assets/<name>/ にモデルファイルがあれば同梱モデルとして列挙
 function listBundledModels() {
   const result = [];
   try {
     for (const dir of fs.readdirSync(ASSETS_DIR, { withFileTypes: true })) {
       if (!dir.isDirectory() || dir.name === 'voices') continue;
-      const file = fs.readdirSync(path.join(ASSETS_DIR, dir.name)).find((f) => /\.model3\.json$/i.test(f));
+      const file = fs.readdirSync(path.join(ASSETS_DIR, dir.name)).find((f) => isModelFile(f));
       if (file) result.push({ id: dir.name, path: path.join(ASSETS_DIR, dir.name, file) });
     }
   } catch (e) { console.warn('assets走査失敗:', e); }
@@ -31,7 +32,7 @@ function listVoicePacks() {
 
 // ===== 設定 =====
 const DEFAULTS = {
-  model: 'haru_greeter', // 同梱モデルのフォルダ名、またはmodel3.jsonの絶対パス
+  model: 'haru_greeter', // 同梱モデルのフォルダ名、ライブラリ "lib:<名前>"、またはモデルファイルの絶対パス
   voicePack: 'haru',     // assets/voices/<name>、空文字でなし
   height: 480,
   opacity: 1,
@@ -74,8 +75,45 @@ const MIN_H = 460;
 const $ = (id) => document.getElementById(id);
 const bubble = $('bubble');
 
-const mascot = new Live2DAdapter($('stage'));
-mascot.setModelSound(false); // 声はボイスパックから鳴らす（字幕と一致させるため）
+// ===== アダプタ =====
+// 描画はアダプタ（adapters/*.js）に任せる。app.js はここに並べたメソッドだけを使う。
+// モデルが無い間は NO_MODEL が代わりに応える（起動直後から届くカーソル位置などを空振りさせる）
+const NO_MODEL = {
+  formatId: null,
+  async load() {},
+  setHeight() {},
+  getSize: () => ({ width: 0, height: 0 }),
+  setPosition() {},
+  getBounds: () => null,
+  focus() {},
+  resetFocus() {},
+  listMotions: () => [],
+  playMotion() {},
+  setExpression() {},
+  setMouth() {},
+  setModelSound() {},
+  hitTest: () => false,
+  dispose() {}
+};
+let mascot = NO_MODEL;
+
+// 形式に合うアダプタを用意する。形式が変わる時は canvas ごと作り直す
+// （PixiJS と Three.js は同じ canvas の WebGL コンテキストを使い回せない）
+function useAdapter(format) {
+  if (mascot.formatId === format.id) return mascot;
+  const Adapter = window[format.adapter];
+  if (!Adapter) throw new Error('アダプタがありません: ' + format.adapter);
+  mascot.dispose();
+  mascot = NO_MODEL;
+  const canvas = document.createElement('canvas');
+  canvas.id = 'stage';
+  canvas.style.opacity = settings.opacity;
+  $('stage').replaceWith(canvas);
+  mascot = new Adapter(canvas);
+  mascot.formatId = format.id;
+  mascot.setModelSound(false); // 声はボイスパックから鳴らす（字幕と一致させるため）
+  return mascot;
+}
 
 let voices = [];          // [{ url, text, motion }]
 let isDragging = false;
@@ -120,14 +158,14 @@ async function loadModel(model, { announce = true } = {}) {
   const p = resolveModelPath(model);
   try {
     if (!p || !fs.existsSync(p)) throw new Error('model not found: ' + model);
-    await mascot.load(pathToFileURL(p).href);
+    const format = formatOf(p);
+    if (!format) throw Object.assign(new Error('unknown format: ' + p), { userMessage: 'この形式のモデルには対応していないよ…' });
+    await useAdapter(format).load(pathToFileURL(p).href);
   } catch (err) {
     console.error('モデル読み込みエラー:', err);
     if (model !== DEFAULTS.model) {
-      const msg = err.code === 'UNSUPPORTED_MOC'
-        ? 'このモデルは Cubism 5.3 以降の形式で、\nまだ対応していないよ…\nデフォルトに戻すね'
-        : 'モデルを読み込めなかったよ…\nデフォルトに戻すね';
-      say(msg, 6000, { tts: false });
+      // 形式ごとの理由（Cubism 5.3 未対応など）はアダプタが userMessage に入れて返す
+      say((err.userMessage || 'モデルを読み込めなかったよ…') + '\nデフォルトに戻すね', 6000, { tts: false });
       return loadModel(DEFAULTS.model, { announce: false });
     }
     say('デフォルトモデルが見つからないよ\nassets を確認して', undefined, { tts: false });
@@ -505,9 +543,9 @@ window.addEventListener('drop', (e) => {
   const file = e.dataTransfer.files[0];
   if (!file) return;
   const p = webUtils.getPathForFile(file);
-  if (/\.model3\.json$/i.test(p)) { loadModel(p); return; }         // 外部参照
+  if (isModelFile(p)) { loadModel(p); return; }                        // 外部参照
   if (/\.zip$/i.test(p) || fs.statSync(p).isDirectory()) { importModel(p); return; } // 取り込み
-  say('ZIP・フォルダ・.model3.json をドロップしてね', undefined, { tts: false });
+  say(`ZIP・フォルダ・${modelFileLabel} をドロップしてね`, undefined, { tts: false });
 });
 
 // ===== VS Code拡張からのイベント（WebSocket → メイン → IPC） =====
@@ -616,7 +654,7 @@ function setGaze(on) {
 function applyOpacity(val) {
   settings.opacity = parseFloat(val);
   saveSettings();
-  $('stage').style.opacity = val;
+  $('stage').style.opacity = val; // canvas を作り直した時は useAdapter が引き継ぐ
 }
 
 // 型が既定値と合う時だけ受け付ける

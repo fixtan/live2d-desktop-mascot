@@ -3,8 +3,7 @@ const { app } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const AdmZip = require('adm-zip');
-
-const MODEL_EXT = /\.model3\.json$/i;
+const { formatOf, isModelFile, modelFileLabel } = require('../shared/formats');
 
 // ZIP 内のファイル名の文字コード
 // 日本語版 Windows のエクスプローラー等で作った ZIP は Shift_JIS で、UTF-8 の印（EFS フラグ）も無い。
@@ -32,6 +31,12 @@ function libraryDir() {
   return dir;
 }
 
+// "haru.model3.json" → "haru"（形式ごとの拡張子を外す）
+function modelBaseName(p) {
+  const base = path.basename(p);
+  return base.replace(formatOf(base).file, '') || base;
+}
+
 // 重複しないフォルダ名を作る
 function uniqueName(base) {
   const dir = libraryDir();
@@ -41,11 +46,11 @@ function uniqueName(base) {
   return name;
 }
 
-// フォルダ内を再帰的に探して最初の model3.json を返す
+// フォルダ内を再帰的に探して最初のモデルファイルを返す
 function findModelFile(dir, depth = 0) {
   if (depth > 6) return null;
   const entries = fs.readdirSync(dir, { withFileTypes: true });
-  const hit = entries.find((e) => e.isFile() && MODEL_EXT.test(e.name));
+  const hit = entries.find((e) => e.isFile() && isModelFile(e.name));
   if (hit) return path.join(dir, hit.name);
   for (const e of entries) {
     if (!e.isDirectory() || e.name === '__MACOSX') continue;
@@ -55,17 +60,17 @@ function findModelFile(dir, depth = 0) {
   return null;
 }
 
-// ZIP: model3.json のあるフォルダ以下だけを展開
+// ZIP: モデルファイルのあるフォルダ以下だけを展開
 function importZip(zipPath) {
   const zip = new AdmZip(zipPath, { decoder: ZIP_DECODER });
   const entries = zip.getEntries();
-  const modelEntry = entries.find((e) => !e.isDirectory && MODEL_EXT.test(e.entryName) && !e.entryName.startsWith('__MACOSX'));
-  if (!modelEntry) throw new Error('ZIPの中に .model3.json が見つかりません');
+  const modelEntry = entries.find((e) => !e.isDirectory && isModelFile(e.entryName) && !e.entryName.startsWith('__MACOSX'));
+  if (!modelEntry) throw new Error(`ZIPの中にモデルファイル（${modelFileLabel}）が見つかりません`);
 
   const prefix = modelEntry.entryName.includes('/')
     ? modelEntry.entryName.slice(0, modelEntry.entryName.lastIndexOf('/') + 1)
     : '';
-  const name = uniqueName(path.basename(modelEntry.entryName).replace(MODEL_EXT, ''));
+  const name = uniqueName(modelBaseName(modelEntry.entryName));
   const dest = path.join(libraryDir(), name);
 
   for (const e of entries) {
@@ -79,12 +84,12 @@ function importZip(zipPath) {
   return name;
 }
 
-// フォルダ: model3.json のあるフォルダ以下をコピー
+// フォルダ: モデルファイルのあるフォルダ以下をコピー
 function importFolder(folderPath) {
   const modelFile = findModelFile(folderPath);
-  if (!modelFile) throw new Error('フォルダの中に .model3.json が見つかりません');
+  if (!modelFile) throw new Error(`フォルダの中にモデルファイル（${modelFileLabel}）が見つかりません`);
   const src = path.dirname(modelFile);
-  const name = uniqueName(path.basename(modelFile).replace(MODEL_EXT, ''));
+  const name = uniqueName(modelBaseName(modelFile));
   fs.cpSync(src, path.join(libraryDir(), name), { recursive: true });
   return name;
 }

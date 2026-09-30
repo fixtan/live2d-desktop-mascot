@@ -1,8 +1,10 @@
 // Live2D（Cubism 3/4）用アダプタ。
-// 将来のVRMアダプタも同じメソッドを持たせる：
+// アダプタが持つメソッドは app.js の NO_MODEL と同じ：
 //   load(url) / setHeight(px) / getSize() / setPosition(x, y) / getBounds()
 //   focus(x, y) / resetFocus() / listMotions() / playMotion(m) / setExpression(name)
 //   setMouth(level) / setModelSound(on) / hitTest(x, y) / dispose()
+// canvas は1つのアダプタ専用（形式が変わる時は app.js が canvas ごと作り直す）。
+// load の失敗で利用者に理由を見せたい時は、エラーに userMessage を付けて投げる
 
 // file:// でも読めるよう XHR で取得（fetch は file: を扱えない）
 function xhrGet(url, responseType) {
@@ -70,6 +72,7 @@ class Live2DAdapter {
       const err = new Error(`moc3 ver ${version} には未対応です（このアプリは ver ${latest} まで）`);
       err.code = 'UNSUPPORTED_MOC';
       err.mocVersion = version;
+      err.userMessage = 'このモデルは Cubism 5.3 以降の形式で、\nまだ対応していないよ…';
       throw err;
     }
   }

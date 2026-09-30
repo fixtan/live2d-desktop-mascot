@@ -29,7 +29,7 @@ function fillModelSelect(s) {
   if (path.isAbsolute(s.settings.model)) {
     group('外部', [['📁 ' + path.basename(s.settings.model), s.settings.model]]);
   }
-  group('操作', [['ZIPを取り込む…', '__import__'], ['model3.jsonを直接開く…', '__file__']]);
+  group('操作', [['ZIPを取り込む…', '__import__'], ['モデルファイルを直接開く…', '__file__']]);
   sel.value = s.settings.model;
 }
 

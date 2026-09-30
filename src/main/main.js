@@ -5,6 +5,7 @@ const tracker = require('./tracker');
 const library = require('./library');
 const { loadConfig } = require('./config');
 const { startBridge } = require('./bridge');
+const { FORMATS } = require('../shared/formats');
 
 let mainWindow;
 let isTrackingMode = tracker.supported;
@@ -306,11 +307,14 @@ ipcMain.on('resize-window', (event, { width, height }) => {
   });
 });
 
-// モデルファイル選択（model3.json を直接参照）
+// モデルファイル選択（取り込まずに直接参照）
 ipcMain.handle('select-model', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
-    title: 'Live2Dモデルを選択',
-    filters: [{ name: 'Live2D Model (Cubism 3/4)', extensions: ['json'] }],
+    title: 'モデルを選択',
+    filters: [
+      { name: 'モデル', extensions: [...new Set(FORMATS.flatMap((f) => f.dialogExtensions))] },
+      ...FORMATS.map((f) => ({ name: f.name, extensions: f.dialogExtensions }))
+    ],
     properties: ['openFile']
   });
   if (result.canceled || !result.filePaths.length) return null;
