@@ -1,6 +1,6 @@
 {
   "name": "live2d-desktop-mascot",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "main": "src/main/main.js",
   "scripts": {
     "start": "electron .",
@@ -28,7 +28,7 @@
   },
   "homepage": "https://github.com/fixtan/live2d-desktop-mascot",
   "productName": "Live2D Desktop Mascot",
-  "description": "VS Code の枠内に常駐する Live2D デスクトップマスコット",
+  "description": "VS Code の枠内に常駐する Live2D / VRM デスクトップマスコット",
   "author": "lain",
   "license": "MIT",
   "build": {

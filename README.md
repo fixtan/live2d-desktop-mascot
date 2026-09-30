@@ -1,6 +1,6 @@
 # Live2D Desktop Mascot
 
-VS Code のウィンドウ内に常駐する Live2D デスクトップマスコット（Windows / macOS / Linux）。
+VS Code のウィンドウ内に常駐する Live2D / VRM デスクトップマスコット（Windows / macOS / Linux）。
 
 <img src="docs/screenshot.webp" width="300" alt="VS Code のエラーに反応するマスコット">
 
@@ -8,10 +8,12 @@ VS Code のウィンドウ内に常駐する Live2D デスクトップマスコ�
 - VS Code 拡張と連携して、保存・エラーの増減・デバッグ開始・タスクの成否に反応
 - マウスを目で追う・クリック／ダブルクリックで反応・時報・独り言
 - キャラ以外の透明部分はクリックが下のアプリに抜ける
-- モデル切り替え（ZIP／フォルダ取り込み、model3.json 直接指定）
+- Live2D（Cubism 3 / 4）と VRM（0.x / 1.0）に対応
+- モデル切り替え（ZIP／フォルダ／.vrm 取り込み、モデルファイル直接指定）
+- VRM は VRMA モーション（待機・しぐさ）を使える。待機モーション2種を同梱
 - ボイスパック（声と字幕とモーションの組み合わせ）
 - 読み上げ：VOICEVOX（起動していれば）／ OS 標準音声
-- 音量に合わせた口パク
+- 音量に合わせた口パク（Live2D・VRM とも）
 
 ## ダウンロード
 
@@ -59,16 +61,36 @@ VS Code のウィンドウ内に常駐する Live2D デスクトップマスコ�
 
 <img src="docs/screenshot-setting.webp" width="300" alt="設定画面">
 
-モデルの ZIP やフォルダをキャラの上にドロップすると取り込めます。日本語のファイル名を含む ZIP（Windows で作ったもの・Mac で作ったもの）も取り込めます。
+モデルの ZIP・フォルダ・`.vrm` をキャラの上にドロップすると取り込めます。日本語のファイル名を含む ZIP（Windows で作ったもの・Mac で作ったもの）も取り込めます。
 取り込んだモデルは設定フォルダ（下記）の `models/` に保存されます。
 
-対応モデル：Live2D Cubism 3 / 4（.model3.json）
+対応モデル：
+
+| 形式 | ファイル | 取り込み |
+|---|---|---|
+| Live2D Cubism 3 / 4 | `.model3.json` | ZIP・フォルダ（`.model3.json` を直接ドロップすると取り込まずに参照） |
+| VRM 0.x / 1.0 | `.vrm` | `.vrm` 単体・ZIP |
+
+Cubism 5.3 以降の形式（moc3 ver 6）はまだ読めません。
+
+### VRM のモーション（VRMA）
+
+`.vrma` をキャラの上にドロップすると、設定フォルダの `motions/` に入ります（複数まとめて可）。`.vrma` だけを入れた ZIP をドロップするとまとめて取り込めます（同じ名前は上書き）。モーションは全 VRM モデル共通です。
+
+- 名前が `idle` で始まるもの（`idle.vrma`・`idle2.vrma`・`idle_sit.vrma` …）… 待機。1本終わるたびにランダムに切り替わる
+- それ以外 … しぐさ。クリック・独り言・ボイスパックの `motion`（ファイル名の部分一致）で使う
+
+`motions/` に待機が1本も無い時は、同梱の待機モーション（Idle・Idle1）を使います。自分の待機を入れるとそちらに切り替わります。
+モーションの前後左右の移動は無視してその場で動きます（上下は残る）。
+VRMA が無くても、手を下ろした立ち姿・呼吸・まばたき・視線追従・簡単なしぐさで動きます。
+
+VRM は Live2D より重く、GPU の無い環境（リモートデスクトップ・仮想マシン）では動きがかくつくことがあります。
 
 
 ## 開発
 
 ```
-npm install
+npm install          # three の一部ファイルを src/renderer/vendor/ にコピーする処理も走る
 npm start            # 起動
 npm start -- --devtools # DevTools付き
 npm run dist:win     # Windows版ビルド（dist/）
@@ -87,13 +109,18 @@ npm run dist:linux   # Linux版ビルド（Linux上で実行）
 ```
 src/main/main.js            メインプロセス（ウィンドウ・トレイ・IPC）
 src/main/library.js         モデルライブラリ（取り込み・一覧・削除）
+src/main/motions.js         VRMA モーションの置き場所（取り込み・一覧。同梱分と合わせる）
 src/main/config.js          config.json の読み込み（既定値の補完）
 src/main/bridge.js          WebSocket サーバー（VS Code 拡張との連携）
 src/main/tracker/           VS Code位置追跡（OS別。現在 win32 のみ）
 src/renderer/app.js         吹き出し・イベント・設定の反映・入力・音声
 src/renderer/settings.*     設定ウィンドウ（操作を送り、状態を受け取って表示するだけ）
-src/renderer/adapters/      描画アダプタ（live2d.js）
+src/renderer/adapters/      描画アダプタ（live2d.js：PixiJS、vrm.js：three.js。同じメソッドを持つ）
+src/shared/formats.js       対応するモデル形式の一覧（形式を増やす時はここに足してアダプタを置く）
+src/shared/motions.js       モーションの役割（待機・しぐさ）の決め方
+scripts/copy-three-addons.js three の GLTFLoader などを vendor/ にコピー（ビルドに examples が入らないため）
 assets/<モデル>/            同梱モデル
+assets/motions/             同梱の VRMA（待機）
 assets/voices/<名前>/       ボイスパック
 vendor/                     Cubism Core
 scripts/bridge-send.js      連携のテスト送信
@@ -168,5 +195,7 @@ node scripts/bridge-send.js taskEnd name=build,exitCode=1
 
 - Live2D Cubism Core — © Live2D Inc.（Live2D Proprietary Software License）
 - 同梱モデル・音声「ハル」— Live2D Inc. サンプルデータ
-- Electron / PixiJS / pixi-live2d-display / adm-zip / ws — MIT License
+- 同梱モーション「Idle」「Idle1」— lain（本リポジトリと同じ MIT License）
+- Electron / PixiJS / pixi-live2d-display / three.js / @pixiv/three-vrm / @pixiv/three-vrm-animation / adm-zip / ws — MIT License
+- VRM モデルは同梱していません。各モデルの利用条件に従って使ってください。
 - VOICEVOX は同梱していません。音声を公開する場合は「VOICEVOX:キャラ名」の表記が必要です。
