@@ -34,3 +34,6 @@ npm-debug.log*
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# projectマップ🤖
+docs/PROJECT_MAP.md
