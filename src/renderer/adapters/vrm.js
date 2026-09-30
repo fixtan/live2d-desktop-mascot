@@ -23,7 +23,7 @@ function xhrGet(url) {
   });
 }
 
-// 手を下ろした立ち姿（正規化ボーン。VRM 0.x も rotateVRM0 後は同じ向き）
+// 手を下ろした立ち姿（正規化ボーン、VRM 1.0 の向きで書く。0.x は _rot が x・z の符号を反転する）
 const REST_POSE = {
   leftUpperArm: [0, 0, -1.3],
   rightUpperArm: [0, 0, 1.3],
@@ -66,6 +66,7 @@ class VRMAdapter {
     this.scene.add(this.lookTarget);
 
     this.vrm = null;
+    this.flip = 1;
     this.box = new THREE.Box3(new THREE.Vector3(), new THREE.Vector3(1, 1, 1)); // モデル座標（m）
     this.mouth = null;
     this.gesture = null;
@@ -74,11 +75,11 @@ class VRMAdapter {
     this.focusOn = false;
     this._px = new Uint8Array(4);
 
-    this.clock = new THREE.Clock();
+    this.timer = new THREE.Timer();
     this._onResize = () => this._resize();
     window.addEventListener('resize', this._onResize);
     this._resize();
-    this._loop = () => { this._raf = requestAnimationFrame(this._loop); this._update(); };
+    this._loop = (ts) => { this._raf = requestAnimationFrame(this._loop); this._update(ts); };
     this._loop();
   }
 
@@ -103,6 +104,8 @@ class VRMAdapter {
     this.vrm = vrm;
     this.group.add(vrm.scene);
     if (vrm.lookAt) vrm.lookAt.target = this.lookTarget;
+    // VRM 0.x は rotateVRM0 で向きをそろえても、正規化ボーンの x・z 回転が 1.0 と逆になる
+    this.flip = vrm.meta?.metaVersion === '0' ? -1 : 1;
 
     this._applyRestPose();
     vrm.update(0);
@@ -111,11 +114,13 @@ class VRMAdapter {
     this.gesture = null;
   }
 
+  // 正規化ボーンの回転（VRM 1.0 の向きで指定）
+  _rot(name, x, y, z) {
+    this.vrm.humanoid.getNormalizedBoneNode(name)?.rotation.set(x * this.flip, y, z * this.flip);
+  }
+
   _applyRestPose() {
-    const h = this.vrm.humanoid;
-    for (const [name, [x, y, z]] of Object.entries(REST_POSE)) {
-      h.getNormalizedBoneNode(name)?.rotation.set(x, y, z);
-    }
+    for (const [name, [x, y, z]] of Object.entries(REST_POSE)) this._rot(name, x, y, z);
   }
 
   // 立ち姿で描かれている範囲（m）。スキンの変形込みで測り、揺れものの分の余裕を足す
@@ -237,40 +242,38 @@ class VRMAdapter {
     return this._px[3] > 16;
   }
 
-  _update() {
-    const dt = Math.min(this.clock.getDelta(), 0.1);
-    const t = this.clock.elapsedTime;
+  _update(ts) {
+    this.timer.update(ts);
+    const dt = Math.min(this.timer.getDelta(), 0.1);
+    const t = this.timer.getElapsed();
     const vrm = this.vrm;
     if (vrm) {
-      const h = vrm.humanoid;
       this._applyRestPose();
       // 待機：呼吸と小さな揺れ
-      const spine = h.getNormalizedBoneNode('spine');
-      const chest = h.getNormalizedBoneNode('chest') || h.getNormalizedBoneNode('upperChest');
-      const head = h.getNormalizedBoneNode('head');
-      spine?.rotation.set(Math.sin(t * 1.6) * 0.015, 0, Math.sin(t * 0.5) * 0.02);
-      chest?.rotation.set(Math.sin(t * 1.6 + 0.6) * 0.02, 0, 0);
-      head?.rotation.set(0, 0, Math.sin(t * 0.7) * 0.03);
-      this._updateGesture(dt, head);
+      this._rot('spine', Math.sin(t * 1.6) * 0.015, 0, Math.sin(t * 0.5) * 0.02);
+      this._rot(vrm.humanoid.getNormalizedBoneNode('chest') ? 'chest' : 'upperChest', Math.sin(t * 1.6 + 0.6) * 0.02, 0, 0);
+      const g = this._updateGesture(dt);
+      this._rot('head', g.x, 0, Math.sin(t * 0.7) * 0.03 + g.z);
       this._updateFace(dt);
       vrm.update(dt);
     }
     this.renderer.render(this.scene, this.camera);
   }
 
-  _updateGesture(dt, head) {
+  // しぐさを進めて、頭に足す回転 { x, z } を返す
+  _updateGesture(dt) {
+    const off = { x: 0, z: 0 };
     const g = this.gesture;
-    if (!g) return;
+    if (!g) return off;
     this.gestureT += dt;
     const k = this.gestureT / g.duration; // 0〜1
-    if (k >= 1) { this.gesture = null; this.setExpression(null); return; }
+    if (k >= 1) { this.gesture = null; this.setExpression(null); return off; }
     const env = Math.sin(Math.PI * k); // 立ち上がって戻る
-    if (head) {
-      if (g.file === 'nod') head.rotation.x += Math.sin(k * Math.PI * 4) * 0.18 * env;
-      else if (g.file === 'tilt') head.rotation.z += 0.25 * env;
-      else if (g.file === 'surprised') head.rotation.x -= 0.12 * env;
-    }
+    if (g.file === 'nod') off.x = Math.sin(k * Math.PI * 4) * 0.18 * env;
+    else if (g.file === 'tilt') off.z = 0.25 * env;
+    else if (g.file === 'surprised') off.x = -0.12 * env;
     this.vrm.expressionManager?.setValue(g.expression, env);
+    return off;
   }
 
   _updateFace(dt) {
