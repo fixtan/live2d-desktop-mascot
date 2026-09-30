@@ -2,7 +2,7 @@ const { ipcRenderer, webUtils } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { pathToFileURL, fileURLToPath } = require('url');
-const { formatOf, isModelFile, modelFileLabel } = require('../shared/formats');
+const { formatOf, isModelFile, isSingleFileModel, modelFileLabel } = require('../shared/formats');
 
 // ===== パス =====
 const ASSETS_DIR = fileURLToPath(new URL('../../assets/', location.href));
@@ -138,7 +138,7 @@ function resolveModelPath(model) {
   return listBundledModels().find((m) => m.id === model)?.path || null;
 }
 
-// ZIP / フォルダをライブラリに取り込んで表示
+// ZIP / .vrm / フォルダをライブラリに取り込んで表示
 async function importModel(p) {
   const res = await ipcRenderer.invoke('import-model', p);
   if (!res) return;
@@ -544,7 +544,8 @@ window.addEventListener('drop', (e) => {
   const file = e.dataTransfer.files[0];
   if (!file) return;
   const p = webUtils.getPathForFile(file);
-  if (isModelFile(p)) { loadModel(p); return; }                        // 外部参照
+  if (isSingleFileModel(p)) { importModel(p); return; }                // 取り込み（.vrm はファイル1個で完結）
+  if (isModelFile(p)) { loadModel(p); return; }                        // 外部参照（.model3.json は周りのファイルごと）
   if (/\.zip$/i.test(p) || fs.statSync(p).isDirectory()) { importModel(p); return; } // 取り込み
   say(`ZIP・フォルダ・${modelFileLabel} をドロップしてね`, undefined, { tts: false });
 });

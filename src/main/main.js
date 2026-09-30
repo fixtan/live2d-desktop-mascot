@@ -5,7 +5,7 @@ const tracker = require('./tracker');
 const library = require('./library');
 const { loadConfig } = require('./config');
 const { startBridge } = require('./bridge');
-const { FORMATS } = require('../shared/formats');
+const { FORMATS, importExtensions, importLabel } = require('../shared/formats');
 
 let mainWindow;
 let isTrackingMode = tracker.supported;
@@ -321,12 +321,12 @@ ipcMain.handle('select-model', async () => {
   return result.filePaths[0];
 });
 
-// ライブラリへ取り込み（ZIP / フォルダ）。p 省略時はダイアログ
+// ライブラリへ取り込み（ZIP / .vrm / フォルダ）。p 省略時はダイアログ
 ipcMain.handle('import-model', async (event, p) => {
   if (!p) {
     const result = await dialog.showOpenDialog(mainWindow, {
-      title: 'モデルを取り込む（ZIP）',
-      filters: [{ name: 'ZIP', extensions: ['zip'] }],
+      title: `モデルを取り込む（${importLabel}）`,
+      filters: [{ name: importLabel, extensions: importExtensions }],
       properties: ['openFile']
     });
     if (result.canceled || !result.filePaths.length) return null;
@@ -413,7 +413,7 @@ ipcMain.on('show-context-menu', (event, state = {}) => {
       click: (item) => send('voice', item.checked)
     },
     { type: 'separator' },
-    { label: '📦 モデルを取り込む（ZIP）…', click: () => send('import-model') },
+    { label: `📦 モデルを取り込む（${importLabel}）…`, click: () => send('import-model') },
     { label: '⚙️ 設定を開く', click: openSettingsWindow },
     {
       label: '📌 VS Code固定モード',

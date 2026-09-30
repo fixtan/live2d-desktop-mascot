@@ -3,6 +3,7 @@
 //   状態：'settings-state' { settings, bundled, library, voicePacks }
 const { ipcRenderer } = require('electron');
 const path = require('path');
+const { importLabel } = require('../shared/formats');
 
 const $ = (id) => document.getElementById(id);
 const act = (type, extra = {}) => ipcRenderer.send('settings-action', { type, ...extra });
@@ -29,7 +30,7 @@ function fillModelSelect(s) {
   if (path.isAbsolute(s.settings.model)) {
     group('外部', [['📁 ' + path.basename(s.settings.model), s.settings.model]]);
   }
-  group('操作', [['ZIPを取り込む…', '__import__'], ['モデルファイルを直接開く…', '__file__']]);
+  group('操作', [[`${importLabel} を取り込む…`, '__import__'], ['モデルファイルを直接開く…', '__file__']]);
   sel.value = s.settings.model;
 }
 

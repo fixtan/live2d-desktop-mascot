@@ -3,7 +3,7 @@ const { app } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const AdmZip = require('adm-zip');
-const { formatOf, isModelFile, modelFileLabel } = require('../shared/formats');
+const { formatOf, isModelFile, isSingleFileModel, modelFileLabel, importLabel } = require('../shared/formats');
 
 // ZIP 内のファイル名の文字コード
 // 日本語版 Windows のエクスプローラー等で作った ZIP は Shift_JIS で、UTF-8 の印（EFS フラグ）も無い。
@@ -94,11 +94,21 @@ function importFolder(folderPath) {
   return name;
 }
 
+// 単体で完結するモデル（.vrm）: ファイル1個を models/<名前>/ にコピー
+function importSingleFile(filePath) {
+  const name = uniqueName(modelBaseName(filePath));
+  const dir = path.join(libraryDir(), name);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.copyFileSync(filePath, path.join(dir, path.basename(filePath)));
+  return name;
+}
+
 function importModel(p) {
   const stat = fs.statSync(p);
   if (stat.isDirectory()) return importFolder(p);
   if (/\.zip$/i.test(p)) return importZip(p);
-  throw new Error('ZIP かフォルダを指定してください');
+  if (isSingleFileModel(p)) return importSingleFile(p);
+  throw new Error(`${importLabel} かフォルダを指定してください`);
 }
 
 // [{ id, path }]
