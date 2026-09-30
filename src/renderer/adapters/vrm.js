@@ -73,6 +73,8 @@ class VRMAdapter {
     this.gestureT = 0;
     this.blinkT = 2 + Math.random() * 3;
     this.focusOn = false;
+    this.headYaw = 0;   // 視線追従で頭が向く角度（なめらかに追う）
+    this.headPitch = 0;
     this._px = new Uint8Array(4);
 
     this.timer = new THREE.Timer();
@@ -253,11 +255,32 @@ class VRMAdapter {
       this._rot('spine', Math.sin(t * 1.6) * 0.015, 0, Math.sin(t * 0.5) * 0.02);
       this._rot(vrm.humanoid.getNormalizedBoneNode('chest') ? 'chest' : 'upperChest', Math.sin(t * 1.6 + 0.6) * 0.02, 0, 0);
       const g = this._updateGesture(dt);
-      this._rot('head', g.x, 0, Math.sin(t * 0.7) * 0.03 + g.z);
+      this._updateHeadTurn(dt);
+      // 頭：視線追従（y・x）＋ゆらぎ＋しぐさ。首にも少し分ける
+      this._rot('neck', -this.headPitch * 0.3, this.headYaw * 0.3, 0);
+      this._rot('head', -this.headPitch * 0.7 + g.x, this.headYaw * 0.7, Math.sin(t * 0.7) * 0.03 + g.z);
       this._updateFace(dt);
       vrm.update(dt);
     }
     this.renderer.render(this.scene, this.camera);
+  }
+
+  // 視線の先へ頭を向ける（目は lookAt が動かす。頭は角度の一部だけ追い、上限を付ける）
+  _updateHeadTurn(dt) {
+    let yaw = 0, pitch = 0;
+    if (this.focusOn) {
+      const head = this.vrm.humanoid.getNormalizedBoneNode('head');
+      if (head) {
+        const p = head.getWorldPosition(new THREE.Vector3());
+        const d = this.lookTarget.position.clone().sub(p);
+        const clamp = (v, m) => Math.max(-m, Math.min(m, v));
+        yaw = clamp(Math.atan2(d.x, d.z) * 0.5, 0.45);
+        pitch = clamp(Math.atan2(d.y, d.z) * 0.5, 0.3);
+      }
+    }
+    const k = Math.min(1, dt * 5);
+    this.headYaw += (yaw - this.headYaw) * k;
+    this.headPitch += (pitch - this.headPitch) * k;
   }
 
   // しぐさを進めて、頭に足す回転 { x, z } を返す
