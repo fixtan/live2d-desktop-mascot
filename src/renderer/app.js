@@ -485,12 +485,9 @@ function updateShape() {
     rects = [];
     const b = mascot.getBounds();
     if (b) {
-      const x = Math.max(0, Math.floor(b.left)), y = Math.max(0, Math.floor(b.top));
-      rects.push({
-        x, y,
-        width: Math.min(window.innerWidth, Math.ceil(b.right)) - x,
-        height: Math.min(window.innerHeight, Math.ceil(b.bottom)) - y
-      });
+      // 横は窓の幅いっぱい（形の外は描画も切れるため。VRM はモーションで体の範囲より外に腕が出る）
+      const y = Math.max(0, Math.floor(b.top));
+      rects.push({ x: 0, y, width: window.innerWidth, height: Math.min(window.innerHeight, Math.ceil(b.bottom)) - y });
     }
     if (bubble.classList.contains('show')) {
       const r = bubble.getBoundingClientRect();

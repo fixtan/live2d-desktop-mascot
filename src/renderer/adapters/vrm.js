@@ -42,9 +42,15 @@ function loadVRMA(url) {
   return vrmaCache.get(url);
 }
 
-// VRMA → AnimationClip。視線（lookAt）のトラックは入れない（カーソル追従と取り合うため）
+// VRMA → AnimationClip。視線（lookAt）のトラックは入れない（カーソル追従と取り合うため）。
+// 腰の前後左右の移動（ルートモーション）は捨ててその場で動かす（歩き・ダンスで窓の外に出ないように）。上下は残す
 function createClip(anim, vrm, name) {
   const h = createVRMAnimationHumanoidTracks(anim, vrm.humanoid, vrm.meta.metaVersion);
+  const hips = h.translation.get('hips');
+  if (hips) {
+    const [rx, , rz] = vrm.humanoid.normalizedRestPose.hips?.position ?? [0, 0, 0];
+    for (let i = 0; i < hips.values.length; i += 3) { hips.values[i] = rx; hips.values[i + 2] = rz; }
+  }
   const tracks = [...h.translation.values(), ...h.rotation.values()];
   if (vrm.expressionManager) {
     const e = createVRMAnimationExpressionTracks(anim, vrm.expressionManager);
@@ -289,10 +295,13 @@ class VRMAdapter {
     this._resize();
   }
 
+  // 窓の大きさの元。幅は身長ぶん取る（モーションで腕を広げても切れないように。余白は透明でクリックは下に抜ける）。
+  // VS Code 枠内の判定や吹き出しには getBounds（体の範囲）を使うので、ここを広げても影響しない
   getSize() {
     if (!this.vrm) return { width: 0, height: 0 };
     const s = this._scale();
-    return { width: (this.box.max.x - this.box.min.x) * s, height: (this.box.max.y - this.box.min.y) * s };
+    const bodyW = this.box.max.x - this.box.min.x, bodyH = this.box.max.y - this.box.min.y;
+    return { width: Math.max(bodyW, bodyH) * s, height: bodyH * s };
   }
 
   // 描画範囲の中心を (x, y)（ウィンドウ座標）に置く
