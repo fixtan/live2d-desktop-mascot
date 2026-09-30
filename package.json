@@ -6,7 +6,8 @@
     "start": "electron .",
     "dist:win": "electron-builder --win",
     "dist:mac": "electron-builder --mac",
-    "dist:linux": "electron-builder --linux"
+    "dist:linux": "electron-builder --linux",
+    "postinstall": "node scripts/copy-three-addons.js"
   },
   "dependencies": {
     "@pixiv/three-vrm": "^3.5.5",

@@ -11,6 +11,9 @@ assets/*
 !assets/motions/
 !assets/tray.png
 
+# npm install 時に node_modules からコピーされる（scripts/copy-three-addons.js）
+src/renderer/vendor/
+
 # エディタ・拡張機能
 .history/
 .vscode/*
