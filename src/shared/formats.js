@@ -16,6 +16,7 @@ const FORMATS = [
     file: /\.vrm$/i,
     label: '.vrm',
     singleFile: true,
+    usesMotionFiles: true,        // motions/ の VRMA を使う
     dialogExtensions: ['vrm'],
     adapter: 'VRMAdapter',
     module: './adapters/vrm.js'   // ES モジュール。必要になった時に app.js が import() する（app.js からの相対）

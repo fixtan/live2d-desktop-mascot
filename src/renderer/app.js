@@ -2,7 +2,8 @@ const { ipcRenderer, webUtils } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { pathToFileURL, fileURLToPath } = require('url');
-const { formatOf, isModelFile, isSingleFileModel, modelFileLabel } = require('../shared/formats');
+const { FORMATS, formatOf, isModelFile, isSingleFileModel, modelFileLabel } = require('../shared/formats');
+const { isMotionFile, motionRoles } = require('../shared/motions');
 
 // ===== パス =====
 const ASSETS_DIR = fileURLToPath(new URL('../../assets/', location.href));
@@ -92,6 +93,7 @@ const NO_MODEL = {
   setExpression() {},
   setMouth() {},
   setModelSound() {},
+  setMotions() {},
   hitTest: () => false,
   dispose() {}
 };
@@ -143,8 +145,36 @@ async function importModel(p) {
   const res = await ipcRenderer.invoke('import-model', p);
   if (!res) return;
   if (res.error) { say('取り込めなかったよ…\n' + res.error, 5000, { tts: false }); return; }
+  if (res.motions !== undefined) { await onMotionsImported(res.motions); return; } // モーションパック
   await refreshLibrary();
   loadModel('lib:' + res.id);
+}
+
+// ===== モーション（VRMA。全モデル共通） =====
+// 役割（待機・しぐさ）は shared/motions.js が名前で決める。アダプタは役割ごとの一覧だけ受け取る
+let motionFiles = [];
+
+async function refreshMotions() {
+  motionFiles = await ipcRenderer.invoke('motions-list');
+  applyMotions();
+}
+
+function applyMotions() {
+  const withUrl = motionFiles.map((m) => ({ name: m.name, url: pathToFileURL(m.path).href }));
+  mascot.setMotions(motionRoles(withUrl));
+}
+
+async function importMotions(paths) {
+  const res = await ipcRenderer.invoke('motions-import', paths);
+  if (res.error) { say('取り込めなかったよ…\n' + res.error, 5000, { tts: false }); return; }
+  await onMotionsImported(res.motions);
+}
+
+async function onMotionsImported(n) {
+  await refreshMotions();
+  const usesMotions = FORMATS.find((f) => f.id === mascot.formatId)?.usesMotionFiles;
+  const note = usesMotions ? '' : '\n（VRM のモデルで使われるよ）';
+  say(`モーションを ${n} 個取り込んだよ${note}`, 4000, { tts: false });
 }
 
 async function removeLibraryModel() {
@@ -177,6 +207,7 @@ async function loadModel(model, { announce = true } = {}) {
   saveSettings();
   if (!settings.gaze) mascot.resetFocus();
   applyHeight(settings.height);
+  applyMotions();
   if (announce) say(greeting());
   return true;
 }
@@ -541,9 +572,10 @@ window.addEventListener('wheel', (e) => {
 window.addEventListener('dragover', (e) => e.preventDefault());
 window.addEventListener('drop', (e) => {
   e.preventDefault();
-  const file = e.dataTransfer.files[0];
-  if (!file) return;
-  const p = webUtils.getPathForFile(file);
+  const paths = [...e.dataTransfer.files].map((f) => webUtils.getPathForFile(f));
+  if (!paths.length) return;
+  if (paths.every(isMotionFile)) { importMotions(paths); return; }   // .vrma（複数まとめて可）
+  const p = paths[0];
   if (isSingleFileModel(p)) { importModel(p); return; }                // 取り込み（.vrm はファイル1個で完結）
   if (isModelFile(p)) { loadModel(p); return; }                        // 外部参照（.model3.json は周りのファイルごと）
   if (/\.zip$/i.test(p) || fs.statSync(p).isDirectory()) { importModel(p); return; } // 取り込み
@@ -689,4 +721,4 @@ ipcRenderer.on('settings-action', (event, a = {}) => {
 // ===== 起動 =====
 applyOpacity(settings.opacity);
 loadVoicePack(settings.voicePack);
-refreshLibrary().then(() => loadModel(settings.model));
+Promise.all([refreshLibrary(), refreshMotions()]).then(() => loadModel(settings.model));

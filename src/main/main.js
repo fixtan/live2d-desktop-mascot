@@ -3,6 +3,8 @@ const path = require('path');
 const fs = require('fs');
 const tracker = require('./tracker');
 const library = require('./library');
+const motions = require('./motions');
+const { isMotionFile } = require('../shared/motions');
 const { loadConfig } = require('./config');
 const { startBridge } = require('./bridge');
 const { FORMATS, importExtensions, importLabel } = require('../shared/formats');
@@ -333,11 +335,26 @@ ipcMain.handle('import-model', async (event, p) => {
     p = result.filePaths[0];
   }
   try {
+    // モデルが入っておらず .vrma だけの ZIP はモーションパックとして取り込む
+    if (/\.zip$/i.test(p)) {
+      const zip = library.openZip(p);
+      if (!library.zipHasModel(zip) && zip.getEntries().some((e) => isMotionFile(e.entryName))) {
+        return { motions: motions.importZip(zip) };
+      }
+    }
     return { id: library.importModel(p) };
   } catch (e) {
     return { error: e.message };
   }
 });
+
+// モーション（VRMA）。全モデル共通のフォルダ
+ipcMain.handle('motions-list', () => motions.listMotions());
+ipcMain.handle('motions-import', (event, paths) => {
+  try { return { motions: motions.importFiles(paths) }; }
+  catch (e) { return { error: e.message }; }
+});
+ipcMain.on('motions-open', () => shell.openPath(motions.motionsDir()));
 
 ipcMain.handle('library-list', () => library.listModels());
 

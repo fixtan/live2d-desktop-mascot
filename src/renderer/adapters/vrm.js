@@ -8,6 +8,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+import { VRMAnimationLoaderPlugin, createVRMAnimationHumanoidTracks, createVRMAnimationExpressionTracks } from '@pixiv/three-vrm-animation';
 
 // file:// でも読めるよう XHR で取得（fetch は file: を扱えない）
 function xhrGet(url) {
@@ -23,6 +24,35 @@ function xhrGet(url) {
   });
 }
 
+// VRMA の読み込み結果（url → Promise<VRMAnimation>）。モデルを替えても使い回す
+const vrmaCache = new Map();
+function loadVRMA(url) {
+  if (!vrmaCache.has(url)) {
+    const p = xhrGet(url).then(async (buffer) => {
+      const loader = new GLTFLoader();
+      loader.register((parser) => new VRMAnimationLoaderPlugin(parser));
+      const gltf = await loader.parseAsync(buffer, new URL('.', url).href);
+      const anim = gltf.userData.vrmAnimations?.[0];
+      if (!anim) throw new Error('VRMA ではありません: ' + url);
+      return anim;
+    });
+    p.catch(() => vrmaCache.delete(url)); // 失敗したら次回やり直す
+    vrmaCache.set(url, p);
+  }
+  return vrmaCache.get(url);
+}
+
+// VRMA → AnimationClip。視線（lookAt）のトラックは入れない（カーソル追従と取り合うため）
+function createClip(anim, vrm, name) {
+  const h = createVRMAnimationHumanoidTracks(anim, vrm.humanoid, vrm.meta.metaVersion);
+  const tracks = [...h.translation.values(), ...h.rotation.values()];
+  if (vrm.expressionManager) {
+    const e = createVRMAnimationExpressionTracks(anim, vrm.expressionManager);
+    tracks.push(...e.preset.values(), ...e.custom.values());
+  }
+  return new THREE.AnimationClip(name, anim.duration, tracks);
+}
+
 // 手を下ろした立ち姿（正規化ボーン、VRM 1.0 の向きで書く。0.x は _rot が x・z の符号を反転する）
 const REST_POSE = {
   leftUpperArm: [0, 0, -1.3],
@@ -31,13 +61,16 @@ const REST_POSE = {
   rightLowerArm: [0, 0.15, 0]
 };
 
-// 手続きで作るしぐさ（VRMA 対応までのつなぎ）。file はボイスパックの motion との部分一致に使う
+// VRMA の待機モーションが無い時の、手続きで作るしぐさ。file はボイスパックの motion との部分一致に使う
 const GESTURES = [
   { file: 'nod', expression: 'happy', duration: 1.2 },
   { file: 'tilt', expression: 'relaxed', duration: 1.6 },
   { file: 'surprised', expression: 'surprised', duration: 1.2 },
   { file: 'happy', expression: 'happy', duration: 1.8 }
 ];
+
+const _euler = new THREE.Euler();
+const _quat = new THREE.Quaternion();
 
 class VRMAdapter {
   constructor(canvas) {
@@ -77,6 +110,15 @@ class VRMAdapter {
     this.headPitch = 0;
     this._px = new Uint8Array(4);
 
+    // VRMA：{ idle: [{ name, url }], gestures: [...] }（役割分けは app.js 側）
+    this.motionSet = { idle: [], gestures: [] };
+    this._motionKey = '';
+    this._motionToken = 0;
+    this.mixer = null;
+    this.idleActions = [];         // 待機（1本流し終わるたびにランダムに切り替え）
+    this.gestureActions = new Map(); // name → action
+    this.activeAction = null;
+
     this.timer = new THREE.Timer();
     this._onResize = () => this._resize();
     window.addEventListener('resize', this._onResize);
@@ -99,6 +141,7 @@ class VRMAdapter {
     VRMUtils.rotateVRM0(vrm); // 0.x は後ろ向きなので 1.0 と同じ向きにそろえる
     vrm.scene.traverse((o) => { o.frustumCulled = false; });
 
+    this._stopMotions();
     if (this.vrm) {
       this.group.remove(this.vrm.scene);
       VRMUtils.deepDispose(this.vrm.scene);
@@ -114,11 +157,97 @@ class VRMAdapter {
     this.box = this._measure(vrm);
     this.mouth = null;
     this.gesture = null;
+    this._prepareMotions(); // 読み込みは待たない（揃うまでは手続きの待機）
+  }
+
+  // ===== VRMA =====
+  setMotions(set) {
+    const key = JSON.stringify(set);
+    if (key === this._motionKey) return;
+    this._motionKey = key;
+    this.motionSet = set;
+    this._prepareMotions();
+  }
+
+  _stopMotions() {
+    this.mixer?.stopAllAction();
+    this.mixer = null;
+    this.idleActions = [];
+    this.gestureActions = new Map();
+    this.activeAction = null;
+  }
+
+  // 今のモデル用に VRMA をクリップにする。待機が1本も無ければ手続きの待機のまま
+  // （しぐさだけの VRMA は、終わった後に戻る姿勢が無いので使わない）
+  async _prepareMotions() {
+    const token = ++this._motionToken;
+    const vrm = this.vrm;
+    this._stopMotions();
+    const { idle, gestures } = this.motionSet;
+    if (!vrm || !idle.length) return;
+
+    const build = async (m) => {
+      try { return { name: m.name, clip: createClip(await loadVRMA(m.url), vrm, m.name) }; }
+      catch (e) { console.warn('VRMA を読めません:', m.name, e); return null; }
+    };
+    const [idleClips, gestureClips] = await Promise.all([
+      Promise.all(idle.map(build)), Promise.all(gestures.map(build))
+    ]);
+    if (token !== this._motionToken || vrm !== this.vrm) return; // 途中でモデルや一覧が変わった
+    const ok = (list) => list.filter(Boolean);
+    if (!ok(idleClips).length) return;
+
+    const mixer = new THREE.AnimationMixer(vrm.scene);
+    const once = (clip) => {
+      const a = mixer.clipAction(clip);
+      a.setLoop(THREE.LoopOnce, 1);
+      a.clampWhenFinished = true;
+      return a;
+    };
+    this.mixer = mixer;
+    this.idleActions = ok(idleClips).map((c) => once(c.clip));
+    this.gestureActions = new Map(ok(gestureClips).map((c) => [c.name, once(c.clip)]));
+    mixer.addEventListener('finished', (e) => this._onActionFinished(e.action));
+    this.activeAction = this._pickIdle(null);
+    this.activeAction.reset().play();
+    console.log(`[vrm] VRMA 待機 ${this.idleActions.length} / しぐさ ${this.gestureActions.size}`);
+  }
+
+  _pickIdle(prev) {
+    const list = this.idleActions;
+    const others = list.length > 1 ? list.filter((a) => a !== prev) : list;
+    return others[Math.floor(Math.random() * others.length)];
+  }
+
+  // 待機が終わったら次の待機へ、しぐさが終わったら待機へ（なめらかに切り替える）
+  _onActionFinished(action) {
+    if (action !== this.activeAction) return;
+    const next = this._pickIdle(this.idleActions.includes(action) ? action : null);
+    if (next === action) { action.reset().play(); return; } // 待機が1本だけ：そのまま繰り返す
+    next.reset().play();
+    action.crossFadeTo(next, this.idleActions.includes(action) ? 0.8 : 0.4, false);
+    this.activeAction = next;
+  }
+
+  _playGestureAction(action) {
+    const prev = this.activeAction;
+    action.reset().play();
+    if (prev && prev !== action) prev.crossFadeTo(action, 0.3, false);
+    this.activeAction = action;
   }
 
   // 正規化ボーンの回転（VRM 1.0 の向きで指定）
   _rot(name, x, y, z) {
     this.vrm.humanoid.getNormalizedBoneNode(name)?.rotation.set(x * this.flip, y, z * this.flip);
+  }
+
+  // 今の回転に足す（VRMA の姿勢の上に視線追従などを重ねる）
+  _addRot(name, x, y, z) {
+    if (!x && !y && !z) return;
+    const node = this.vrm.humanoid.getNormalizedBoneNode(name);
+    if (!node) return;
+    _euler.set(x * this.flip, y, z * this.flip);
+    node.quaternion.multiply(_quat.setFromEuler(_euler));
   }
 
   _applyRestPose() {
@@ -214,12 +343,20 @@ class VRMAdapter {
     this.lookTarget.position.set(p.x, p.y, p.z + 5);
   }
 
+  // しぐさの VRMA があればそれ、無ければ手続きのしぐさ
   listMotions() {
-    return this.vrm ? GESTURES.map((g) => ({ ...g, sound: null })) : [];
+    if (!this.vrm) return [];
+    if (this.gestureActions.size) return [...this.gestureActions.keys()].map((file) => ({ file, vrma: true, sound: null }));
+    return GESTURES.map((g) => ({ ...g, sound: null }));
   }
 
   playMotion(m) {
     if (!this.vrm || !m) return;
+    if (m.vrma) {
+      const a = this.gestureActions.get(m.file);
+      if (a) this._playGestureAction(a);
+      return;
+    }
     this.gesture = m;
     this.gestureT = 0;
   }
@@ -246,21 +383,34 @@ class VRMAdapter {
 
   _update(ts) {
     this.timer.update(ts);
-    const dt = Math.min(this.timer.getDelta(), 0.1);
+    // モーション・表情は実時間で進める（描画が遅い環境でもスローにならない）。
+    // 揺れもの（vrm.update）は大きな刻みで暴れるので 0.1 秒で頭打ち。隠れていた後の大きな飛びは捨てる
+    const raw = this.timer.getDelta();
+    const dt = raw > 1 ? 0 : raw;
     const t = this.timer.getElapsed();
     const vrm = this.vrm;
     if (vrm) {
-      this._applyRestPose();
-      // 待機：呼吸と小さな揺れ
-      this._rot('spine', Math.sin(t * 1.6) * 0.015, 0, Math.sin(t * 0.5) * 0.02);
-      this._rot(vrm.humanoid.getNormalizedBoneNode('chest') ? 'chest' : 'upperChest', Math.sin(t * 1.6 + 0.6) * 0.02, 0, 0);
       const g = this._updateGesture(dt);
       this._updateHeadTurn(dt);
-      // 頭：視線追従（y・x）＋ゆらぎ＋しぐさ。首にも少し分ける
-      this._rot('neck', -this.headPitch * 0.3, this.headYaw * 0.3, 0);
-      this._rot('head', -this.headPitch * 0.7 + g.x, this.headYaw * 0.7, Math.sin(t * 0.7) * 0.03 + g.z);
+      if (this.mixer) {
+        // VRMA：モーションの姿勢の上に、視線追従としぐさの分を足す。
+        // 先に立ち姿へ戻す（モーションに含まれないボーンはそのまま残るので、足し算が毎フレーム積み重ならないように）
+        this._applyRestPose();
+        for (const n of ['spine', 'chest', 'upperChest', 'neck', 'head']) this._rot(n, 0, 0, 0);
+        this.mixer.update(dt);
+        this._addRot('neck', -this.headPitch * 0.3, this.headYaw * 0.3, 0);
+        this._addRot('head', -this.headPitch * 0.7 + g.x, this.headYaw * 0.7, g.z);
+      } else {
+        // 手続きの待機：手を下ろした立ち姿＋呼吸と小さな揺れ
+        this._applyRestPose();
+        this._rot('spine', Math.sin(t * 1.6) * 0.015, 0, Math.sin(t * 0.5) * 0.02);
+        this._rot(vrm.humanoid.getNormalizedBoneNode('chest') ? 'chest' : 'upperChest', Math.sin(t * 1.6 + 0.6) * 0.02, 0, 0);
+        // 頭：視線追従（y・x）＋ゆらぎ＋しぐさ。首にも少し分ける
+        this._rot('neck', -this.headPitch * 0.3, this.headYaw * 0.3, 0);
+        this._rot('head', -this.headPitch * 0.7 + g.x, this.headYaw * 0.7, Math.sin(t * 0.7) * 0.03 + g.z);
+      }
       this._updateFace(dt);
-      vrm.update(dt);
+      vrm.update(Math.min(dt, 0.1));
     }
     this.renderer.render(this.scene, this.camera);
   }
@@ -315,6 +465,8 @@ class VRMAdapter {
   dispose() {
     cancelAnimationFrame(this._raf);
     window.removeEventListener('resize', this._onResize);
+    this._motionToken++;
+    this._stopMotions();
     if (this.vrm) VRMUtils.deepDispose(this.vrm.scene);
     this.vrm = null;
     this.renderer.dispose();

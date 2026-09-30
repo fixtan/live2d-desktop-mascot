@@ -61,8 +61,15 @@ function findModelFile(dir, depth = 0) {
 }
 
 // ZIP: モデルファイルのあるフォルダ以下だけを展開
+// ZIP を開く（日本語のファイル名に対応した decoder 付き）
+function openZip(zipPath) {
+  return new AdmZip(zipPath, { decoder: ZIP_DECODER });
+}
+
+const zipHasModel = (zip) => zip.getEntries().some((e) => !e.isDirectory && isModelFile(e.entryName));
+
 function importZip(zipPath) {
-  const zip = new AdmZip(zipPath, { decoder: ZIP_DECODER });
+  const zip = openZip(zipPath);
   const entries = zip.getEntries();
   const modelEntry = entries.find((e) => !e.isDirectory && isModelFile(e.entryName) && !e.entryName.startsWith('__MACOSX'));
   if (!modelEntry) throw new Error(`ZIPの中にモデルファイル（${modelFileLabel}）が見つかりません`);
@@ -130,4 +137,4 @@ function removeModel(name) {
   fs.rmSync(target, { recursive: true, force: true });
 }
 
-module.exports = { libraryDir, importModel, listModels, removeModel };
+module.exports = { libraryDir, importModel, listModels, removeModel, openZip, zipHasModel };

@@ -115,6 +115,7 @@ $('model-select').onchange = (e) => {
   else act('model', { value: v });
 };
 $('btn-open-library').onclick = () => ipcRenderer.send('library-open');
+$('btn-open-motions').onclick = () => ipcRenderer.send('motions-open');
 $('btn-remove-model').onclick = () => {
   const m = state?.settings.model || '';
   if (!m.startsWith('lib:')) return;
