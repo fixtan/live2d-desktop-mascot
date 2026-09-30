@@ -9,6 +9,17 @@
   <script src="../../node_modules/pixi.js/dist/browser/pixi.min.js"></script>
   <script src="../../node_modules/pixi-live2d-display/dist/cubism4.min.js"></script>
 
+  <!-- VRM アダプタ（ES モジュール）が使う名前の解決先 -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "../../node_modules/three/build/three.module.js",
+      "three/addons/": "../../node_modules/three/examples/jsm/",
+      "@pixiv/three-vrm": "../../node_modules/@pixiv/three-vrm/lib/three-vrm.module.js"
+    }
+  }
+  </script>
+
   <link rel="stylesheet" href="style.css">
 </head>
 <body>

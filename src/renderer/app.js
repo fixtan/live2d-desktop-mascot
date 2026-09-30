@@ -99,8 +99,9 @@ let mascot = NO_MODEL;
 
 // 形式に合うアダプタを用意する。形式が変わる時は canvas ごと作り直す
 // （PixiJS と Three.js は同じ canvas の WebGL コンテキストを使い回せない）
-function useAdapter(format) {
+async function useAdapter(format) {
   if (mascot.formatId === format.id) return mascot;
+  if (!window[format.adapter] && format.module) await import(format.module);
   const Adapter = window[format.adapter];
   if (!Adapter) throw new Error('アダプタがありません: ' + format.adapter);
   mascot.dispose();
@@ -160,7 +161,7 @@ async function loadModel(model, { announce = true } = {}) {
     if (!p || !fs.existsSync(p)) throw new Error('model not found: ' + model);
     const format = formatOf(p);
     if (!format) throw Object.assign(new Error('unknown format: ' + p), { userMessage: 'この形式のモデルには対応していないよ…' });
-    await useAdapter(format).load(pathToFileURL(p).href);
+    await (await useAdapter(format)).load(pathToFileURL(p).href);
   } catch (err) {
     console.error('モデル読み込みエラー:', err);
     if (model !== DEFAULTS.model) {

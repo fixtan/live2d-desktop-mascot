@@ -9,9 +9,11 @@
     "dist:linux": "electron-builder --linux"
   },
   "dependencies": {
+    "@pixiv/three-vrm": "^3.5.5",
     "adm-zip": "^0.6.1",
     "pixi-live2d-display": "0.4.0",
     "pixi.js": "6.5.9",
+    "three": "^0.186.1",
     "ws": "^8.22.0"
   },
   "devDependencies": {

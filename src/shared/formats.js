@@ -8,6 +8,15 @@ const FORMATS = [
     label: '.model3.json',        // メッセージ表示用
     dialogExtensions: ['json'],   // ファイル選択ダイアログのフィルタ
     adapter: 'Live2DAdapter'      // renderer の window に置かれるアダプタのクラス名
+  },
+  {
+    id: 'vrm',
+    name: 'VRM (0.x / 1.0)',
+    file: /\.vrm$/i,
+    label: '.vrm',
+    dialogExtensions: ['vrm'],
+    adapter: 'VRMAdapter',
+    module: './adapters/vrm.js'   // ES モジュール。必要になった時に app.js が import() する（app.js からの相対）
   }
 ];
 
