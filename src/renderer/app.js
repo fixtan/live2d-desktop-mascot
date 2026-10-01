@@ -373,8 +373,14 @@ function playVoice(v = pick(voices), { auto = false } = {}) {
 
   // 読み上げ on ＋ VOICEVOX なら、セリフをこのキャラの話者で読む。合成できなければ wav
   const spoken = usesVoicevox() ? spokenText(v.text) : '';
+  console.log(spoken
+    ? `[voice] VOICEVOX(${settings.voicevoxSpeaker}): ${spoken}`
+    : `[voice] wav: ${v.text}（voice=${settings.voice} engine=${settings.ttsEngine}）`);
   const audio = spoken
-    ? synthVoicevox(spoken).then((wav) => wav || fs.promises.readFile(v.abs))
+    ? synthVoicevox(spoken).then((wav) => {
+        if (!wav) console.log('[voice] 合成できない → wav');
+        return wav || fs.promises.readFile(v.abs);
+      })
     : fs.promises.readFile(v.abs);
   audio
     .then((data) => { if (token === playToken) return playAudioData(data, token); })

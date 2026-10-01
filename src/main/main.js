@@ -57,6 +57,7 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     if (process.platform === 'win32') app.setAppUserModelId('com.fixtan.live2d-desktop-mascot');
     store = createStore(app.getPath('userData'));
+    isTrackingMode = tracker.supported && store.getShared('trackingMode') !== false; // 既定は VS Code 追従、切り替えは覚える
     store.list().forEach((id, i) => createMascotWindow(id, { index: i }));
     trackerHandle = tracker.start((rect) => {
       vscodeRect = rect ? screen.screenToDipRect(null, rect) : null;
@@ -644,6 +645,7 @@ onMascot('show-context-menu', (m, state = {}) => {
 
 function setTrackingMode(enable) {
   isTrackingMode = enable && tracker.supported;
+  if (tracker.supported) store.setShared('trackingMode', !!enable);
   notifyTrackingMode();
   clampAll();
 }

@@ -1,5 +1,6 @@
 // userData/characters.json — 表示するキャラの一覧と、キャラごとの設定・位置（メインプロセスが持つ）
-//   { version: 1, characters: [{ id: 'c1', settings: {...} | null, anchor: { x, bottom } | null }] }
+//   { version: 1, characters: [{ id: 'c1', settings: {...} | null, anchor: { x, bottom } | null }], shared: { trackingMode } }
+// shared は全キャラ共通の状態（動作モードなど）
 // 先頭のキャラが代表（VS Code のイベント・時報に反応する）
 // settings の中身はマスコット側（app.js）の DEFAULTS が決める。ここは形を見ずに預かるだけ
 // anchor は窓の下端中央（窓の大きさはモデルで変わるので、足元の位置で覚える）
@@ -11,6 +12,7 @@ const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
 function createStore(dir) {
   const file = path.join(dir, 'characters.json');
   let list = [];
+  let shared = {};
   let fresh = false; // ファイルが無かった（初回。c1 は localStorage の設定を引き継ぐ）
   let saveTimer = null;
 
@@ -23,6 +25,7 @@ function createStore(dir) {
         settings: isObj(c.settings) ? c.settings : null,
         anchor: isObj(c.anchor) && Number.isFinite(c.anchor.x) && Number.isFinite(c.anchor.bottom) ? c.anchor : null
       }));
+    if (isObj(data.shared)) shared = data.shared;
   } catch (e) {
     if (e.code === 'ENOENT') fresh = true;
     else console.warn('[characters] characters.json を読めません。1体で起動します:', e.message);
@@ -34,7 +37,7 @@ function createStore(dir) {
     saveTimer = null;
     try {
       fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(file, JSON.stringify({ version: 1, characters: list }, null, 2) + '\n');
+      fs.writeFileSync(file, JSON.stringify({ version: 1, characters: list, shared }, null, 2) + '\n');
     } catch (e) {
       console.warn('[characters] characters.json を書けません:', e.message);
     }
@@ -80,6 +83,12 @@ function createStore(dir) {
       const c = find(id);
       if (!c) return;
       c.anchor = anchor;
+      save();
+    },
+    getShared: (key) => shared[key],
+    setShared(key, value) {
+      if (shared[key] === value) return;
+      shared[key] = value;
       save();
     },
     flush: () => { if (saveTimer) writeNow(); }
