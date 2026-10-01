@@ -471,9 +471,11 @@ function usesVoicevox() {
   return settings.voice && settings.ttsEngine === 'voicevox';
 }
 
-// 読ませる文。「(笑)」のような括弧書きは外し、読める字が残らなければ空（wav を鳴らす）
+// 読ませる文。括弧書きは外す。「(笑)」だけのセリフは笑い声にし、それでも読める字が無ければ空（wav を鳴らす）
 function spokenText(text) {
-  const t = String(text || '').replace(/[(（][^)）]*[)）]/g, '').trim();
+  const src = String(text || '');
+  let t = src.replace(/[(（][^)）]*[)）]/g, '').trim();
+  if (!/[\p{L}\p{N}]/u.test(t) && /[(（]笑[)）]/.test(src)) t = 'ふふっ';
   return /[\p{L}\p{N}]/u.test(t) ? t : '';
 }
 
