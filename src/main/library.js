@@ -37,12 +37,13 @@ function modelBaseName(p) {
   return base.replace(formatOf(base).file, '') || base;
 }
 
-// 重複しないフォルダ名を作る
-function uniqueName(base) {
+// 取り込み先のフォルダ名。同じ名前があれば上書きする（間違えて何度もドロップしても増えないように）
+function targetName(base) {
   const dir = libraryDir();
-  const safe = base.replace(/[\\/:*?"<>|]/g, '_').trim() || 'model';
-  let name = safe, i = 2;
-  while (fs.existsSync(path.join(dir, name))) name = `${safe}_${i++}`;
+  const name = base.replace(/[\\/:*?"<>|]/g, '_').trim() || 'model';
+  const dest = path.resolve(dir, name);
+  if (!dest.startsWith(dir + path.sep)) throw new Error('invalid name');
+  fs.rmSync(dest, { recursive: true, force: true });
   return name;
 }
 
@@ -77,7 +78,7 @@ function importZip(zipPath) {
   const prefix = modelEntry.entryName.includes('/')
     ? modelEntry.entryName.slice(0, modelEntry.entryName.lastIndexOf('/') + 1)
     : '';
-  const name = uniqueName(modelBaseName(modelEntry.entryName));
+  const name = targetName(modelBaseName(modelEntry.entryName));
   const dest = path.join(libraryDir(), name);
 
   for (const e of entries) {
@@ -96,14 +97,14 @@ function importFolder(folderPath) {
   const modelFile = findModelFile(folderPath);
   if (!modelFile) throw new Error(`フォルダの中にモデルファイル（${modelFileLabel}）が見つかりません`);
   const src = path.dirname(modelFile);
-  const name = uniqueName(modelBaseName(modelFile));
+  const name = targetName(modelBaseName(modelFile));
   fs.cpSync(src, path.join(libraryDir(), name), { recursive: true });
   return name;
 }
 
 // 単体で完結するモデル（.vrm）: ファイル1個を models/<名前>/ にコピー
 function importSingleFile(filePath) {
-  const name = uniqueName(modelBaseName(filePath));
+  const name = targetName(modelBaseName(filePath));
   const dir = path.join(libraryDir(), name);
   fs.mkdirSync(dir, { recursive: true });
   fs.copyFileSync(filePath, path.join(dir, path.basename(filePath)));
@@ -111,6 +112,8 @@ function importSingleFile(filePath) {
 }
 
 function importModel(p) {
+  // ライブラリの中のものを取り込み直すと、上書きの前に自分を消してしまう
+  if (path.resolve(p).startsWith(libraryDir() + path.sep)) throw new Error('ライブラリに入っているモデルです。設定のモデル一覧から選んでね');
   const stat = fs.statSync(p);
   if (stat.isDirectory()) return importFolder(p);
   if (/\.zip$/i.test(p)) return importZip(p);
