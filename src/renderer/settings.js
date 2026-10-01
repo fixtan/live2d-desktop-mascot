@@ -14,23 +14,83 @@ let state = null;
 // ドラッグ中・入力中の部品は上書きしない（スライダーが指から逃げないように）
 const idle = (el) => el !== document.activeElement;
 
-function fillModelSelect(s) {
-  const sel = $('model-select');
-  if (!idle(sel)) return;
-  sel.innerHTML = '';
-  const group = (label, items) => {
-    if (!items.length) return;
-    const g = document.createElement('optgroup');
-    g.label = label;
-    items.forEach(([text, value]) => g.appendChild(new Option(text, value)));
-    sel.appendChild(g);
-  };
-  group('同梱', s.bundled.map((id) => [id, id]));
-  group('ライブラリ', s.library.map((id) => [id, 'lib:' + id]));
-  if (path.isAbsolute(s.settings.model)) {
-    group('外部', [['📁 ' + path.basename(s.settings.model), s.settings.model]]);
+// ===== モデル一覧（エクスプローラ風） =====
+// サムネは VRM の埋め込みだけ。無いモデルは頭文字。一度取ったサムネはここで覚える
+const thumbCache = new Map(); // file → data URL | null
+let gridKey = '';
+
+async function loadThumbs(files) {
+  const need = files.filter((f) => f && !thumbCache.has(f));
+  if (!need.length) return;
+  const got = await ipcRenderer.invoke('model-thumbs', need);
+  for (const f of need) thumbCache.set(f, got[f] ?? null);
+}
+
+function thumbBox(el, file, label) {
+  el.innerHTML = '';
+  const url = file ? thumbCache.get(file) : null;
+  if (url) {
+    const img = document.createElement('img');
+    img.src = url;
+    img.alt = '';
+    el.appendChild(img);
+  } else {
+    const span = document.createElement('span');
+    span.className = 'initial';
+    span.textContent = [...(label || '?')][0].toUpperCase();
+    el.appendChild(span);
   }
-  sel.value = s.settings.model;
+}
+
+async function fillModelGrid(s) {
+  const grid = $('model-grid');
+  const external = path.isAbsolute(s.settings.model) ? [s.settings.model] : [];
+  const groups = [
+    ['同梱', s.bundled.map((id) => [id, id])],
+    ['ライブラリ', s.library.map((id) => [id, 'lib:' + id])],
+    ['外部', external.map((p) => ['📁 ' + path.basename(p), p])]
+  ].filter(([, items]) => items.length);
+
+  // 一覧が変わった時だけ作り直す（スライダー操作のたびに状態が届くため）
+  const key = JSON.stringify(groups);
+  if (key !== gridKey) {
+    gridKey = key;
+    await loadThumbs(groups.flatMap(([, items]) => items.map(([, v]) => s.modelPaths?.[v])));
+    grid.innerHTML = '';
+    for (const [label, items] of groups) {
+      const h = document.createElement('div');
+      h.className = 'group';
+      h.textContent = label;
+      grid.appendChild(h);
+      for (const [text, value] of items) {
+        const tile = document.createElement('button');
+        tile.className = 'model-tile';
+        tile.dataset.value = value;
+        tile.title = text;
+        const box = document.createElement('div');
+        box.className = 'thumb';
+        thumbBox(box, s.modelPaths?.[value], text.replace(/^📁 /, ''));
+        const name = document.createElement('div');
+        name.className = 'name';
+        name.textContent = text;
+        tile.append(box, name);
+        tile.onclick = () => { tile.blur(); act('model', { value }); };
+        grid.appendChild(tile);
+      }
+    }
+  }
+  for (const tile of grid.querySelectorAll('.model-tile')) {
+    const on = tile.dataset.value === state.settings.model;
+    if (on && !tile.classList.contains('selected')) tile.scrollIntoView({ block: 'nearest' });
+    tile.classList.toggle('selected', on);
+  }
+}
+
+async function fillCharacterThumb(s) {
+  const c = s.characters.find((x) => x.id === s.target);
+  await loadThumbs([c?.modelPath]);
+  const label = c?.model ? (c.model.startsWith('lib:') ? c.model.slice(4) : path.basename(c.model)) : '?';
+  thumbBox($('character-thumb'), c?.modelPath, label);
 }
 
 function fillCharacterSelect(s) {
@@ -74,7 +134,8 @@ function render(s) {
   const mode = voiceModeOf(st);
 
   fillCharacterSelect(s);
-  fillModelSelect(s);
+  fillCharacterThumb(s);
+  fillModelGrid(s);
   $('btn-remove-model').disabled = !st.model.startsWith('lib:');
   fillVoiceSelect(s);
 
@@ -142,7 +203,6 @@ $('btn-remove-character').onclick = () => {
   const c = state.characters.find((x) => x.id === state.target);
   if (confirm(`「${c?.label || state.target}」を消す？`)) ipcRenderer.send('character-remove', state.target);
 };
-$('model-select').onchange = (e) => { e.target.blur(); act('model', { value: e.target.value }); };
 $('btn-import-model').onclick = () => act('import-model');
 $('btn-select-file').onclick = () => act('select-model-file');
 $('btn-open-library').onclick = () => ipcRenderer.send('library-open');

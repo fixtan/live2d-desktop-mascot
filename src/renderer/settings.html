@@ -59,7 +59,41 @@
     h2 { font-size: 12px; font-weight: 600; color: #4ea1ff; margin: 18px 0 10px; display: flex; align-items: center; gap: 8px; }
     h2::after { content: ''; flex: 1; height: 1px; background: #3a3a3a; }
     h2.common { color: #aaa; margin-top: 24px; }
-    .button-row button.side { flex: 0 0 auto; padding: 5px 12px; }
+    .button-row button.side, .label-row button.side { flex: 0 0 auto; padding: 5px 12px; }
+    .label-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+    .label-row .setting-label { margin: 0; }
+
+    /* モデル一覧（エクスプローラ風）。列数は窓の幅で変わる */
+    .model-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+      gap: 8px;
+      max-height: 330px;
+      overflow-y: auto;
+      padding: 6px;
+      background: #1e1e1e;
+      border: 1px solid #3a3a3a;
+      border-radius: 4px;
+    }
+    .model-grid .group { grid-column: 1 / -1; font-size: 11px; color: #777; margin-top: 2px; }
+    .model-tile {
+      background: none; border: 1px solid transparent; border-radius: 6px;
+      padding: 4px; color: #ccc; display: flex; flex-direction: column; align-items: center; gap: 4px;
+      font-size: 11px; min-width: 0;
+    }
+    .model-tile:hover { background: #2d2d2d; }
+    .model-tile.selected { border-color: #4ea1ff; background: #264f78; color: #fff; }
+    .model-tile .thumb { width: 100%; aspect-ratio: 1; border-radius: 4px; overflow: hidden; background: #333; display: grid; place-items: center; }
+    .model-tile .thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .model-tile .name {
+      width: 100%; text-align: center; line-height: 1.3; word-break: break-all;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    }
+    /* サムネが無いモデルは頭文字 */
+    .initial { font-size: 26px; font-weight: 600; color: #888; }
+    .mini-thumb { flex: 0 0 34px; height: 34px; border-radius: 4px; overflow: hidden; background: #333; display: grid; place-items: center; }
+    .mini-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .mini-thumb .initial { font-size: 15px; }
   </style>
 </head>
 <body>
@@ -67,6 +101,7 @@
   <div class="setting-group character-group">
     <label class="setting-label">キャラ</label>
     <div class="button-row">
+      <div id="character-thumb" class="mini-thumb"></div>
       <select id="character-select"></select>
       <button id="btn-add-character" class="narrow" title="キャラを追加">＋</button>
       <button id="btn-remove-character" class="narrow" title="このキャラを消す">−</button>
@@ -77,11 +112,11 @@
   <h2>見た目</h2>
 
   <div class="setting-group">
-    <label class="setting-label">モデル</label>
-    <div class="button-row">
-      <select id="model-select"></select>
+    <div class="label-row">
+      <label class="setting-label">モデル</label>
       <button id="btn-import-model" class="side" title="ZIP / .vrm / フォルダをライブラリに入れて、このキャラに使う。同じ名前は上書き。キャラにドロップしても同じ">取り込む…</button>
     </div>
+    <div id="model-grid" class="model-grid"></div>
     <div class="button-row mt">
       <button id="btn-select-file" title="取り込まずに、置いてある場所のまま読み込む">ファイルを直接開く…</button>
       <button id="btn-remove-model">ライブラリから削除</button>

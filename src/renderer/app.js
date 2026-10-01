@@ -89,6 +89,7 @@ function pushSettingsState() {
     settings: { ...settings },
     bundled: listBundledModels().map((m) => m.id),
     library: libraryModels.map((m) => m.id),
+    modelPaths: modelPaths(), // model の値 → ファイル（設定ウィンドウのサムネ用）
     voicePacks: listVoicePacks()
   });
 }
@@ -169,6 +170,14 @@ ipcRenderer.on('library-changed', async () => {
   }
 });
 ipcRenderer.on('motions-changed', () => refreshMotions());
+
+function modelPaths() {
+  const out = {};
+  for (const m of listBundledModels()) out[m.id] = m.path;
+  for (const m of libraryModels) out['lib:' + m.id] = m.path;
+  if (path.isAbsolute(settings.model)) out[settings.model] = settings.model;
+  return out;
+}
 
 function resolveModelPath(model) {
   if (!model) return null;

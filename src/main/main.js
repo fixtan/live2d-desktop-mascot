@@ -8,6 +8,7 @@ const { isMotionFile } = require('../shared/motions');
 const { loadConfig } = require('./config');
 const { startBridge } = require('./bridge');
 const { createStore } = require('./characters');
+const { thumbnailUrl } = require('./thumbs');
 const { FORMATS, importExtensions, importLabel } = require('../shared/formats');
 
 // ===== キャラ =====
@@ -364,6 +365,8 @@ function settingsView() {
     followSupported: tracker.supported,
     characters: store.list().map((id, i) => ({
       id,
+      model: lastStates.get(id)?.settings.model ?? store.get(id)?.settings?.model ?? null,
+      modelPath: (() => { const st = lastStates.get(id); return st ? st.modelPaths?.[st.settings.model] ?? null : null; })(),
       label: `${i + 1}: ${modelLabel(lastStates.get(id)?.settings.model ?? store.get(id)?.settings?.model)}${id === primary ? '（代表）' : ''}`
     }))
   };
@@ -393,6 +396,9 @@ ipcMain.on('settings-action', (event, action) => {
   const m = mascots.get(settingsTarget);
   if (m && !m.win.isDestroyed()) m.win.webContents.send('settings-action', action);
 });
+// サムネ：ファイル → data URL（無ければ null）
+ipcMain.handle('model-thumbs', (event, files) =>
+  Object.fromEntries((Array.isArray(files) ? files : []).filter((f) => typeof f === 'string').map((f) => [f, thumbnailUrl(f)])));
 ipcMain.on('settings-select-character', (event, id) => setSettingsTarget(id));
 ipcMain.on('character-add', () => addCharacter());
 ipcMain.on('character-remove', (event, id) => removeCharacter(id));
