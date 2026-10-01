@@ -371,8 +371,13 @@ function playVoice(v = pick(voices), { auto = false } = {}) {
   const matched = v.motion && motions.find((m) => m.file.includes(v.motion));
   mascot.playMotion(matched || pick(motions));
 
-  fs.promises.readFile(v.abs)
-    .then((data) => playAudioData(data, token))
+  // 読み上げ on ＋ VOICEVOX なら、セリフをこのキャラの話者で読む。合成できなければ wav
+  const spoken = usesVoicevox() ? spokenText(v.text) : '';
+  const audio = spoken
+    ? synthVoicevox(spoken).then((wav) => wav || fs.promises.readFile(v.abs))
+    : fs.promises.readFile(v.abs);
+  audio
+    .then((data) => { if (token === playToken) return playAudioData(data, token); })
     .catch((e) => { console.warn('ボイス再生失敗:', e); maybeEndSpeech(); });
 
   if (v.text) say(v.text, undefined, { tts: false, auto });
@@ -441,11 +446,7 @@ async function speak(text) {
   const token = playToken;
   if (settings.ttsEngine === 'voicevox') {
     try {
-      const wav = await ipcRenderer.invoke('voicevox-synth', {
-        text,
-        speaker: settings.voicevoxSpeaker,
-        speed: settings.voicevoxSpeed
-      });
+      const wav = await synthVoicevox(text);
       if (token !== playToken) return;
       if (wav) { await playAudioData(wav, token); return; }
     } catch (e) {
@@ -454,6 +455,26 @@ async function speak(text) {
     }
   }
   speakOS(text);
+}
+
+// このキャラの話者で合成。VOICEVOX が無ければ null（メインが同じセリフの結果を覚えている）
+function synthVoicevox(text) {
+  return ipcRenderer.invoke('voicevox-synth', {
+    text,
+    speaker: settings.voicevoxSpeaker,
+    speed: settings.voicevoxSpeed
+  });
+}
+
+// ボイスパックのセリフを VOICEVOX で読むか：読み上げ on で、エンジンが VOICEVOX
+function usesVoicevox() {
+  return settings.voice && settings.ttsEngine === 'voicevox';
+}
+
+// 読ませる文。「(笑)」のような括弧書きは外し、読める字が残らなければ空（wav を鳴らす）
+function spokenText(text) {
+  const t = String(text || '').replace(/[(（][^)）]*[)）]/g, '').trim();
+  return /[\p{L}\p{N}]/u.test(t) ? t : '';
 }
 
 function speakOS(text) {

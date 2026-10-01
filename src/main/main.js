@@ -547,7 +547,7 @@ const VOICEVOX = 'http://127.0.0.1:50021';
 // 失敗時は例外を投げずに null を返す（エンジン未起動のたびに長いエラーログが出ないように）
 let voicevoxWarned = false;
 function voicevoxDown(e) {
-  if (!voicevoxWarned) console.log('[voicevox] 接続できません（' + (e.cause?.code || e.message) + '）→ OS音声を使用');
+  if (!voicevoxWarned) console.log('[voicevox] 接続できません（' + (e.cause?.code || e.message) + '）→ ボイスパック／OS音声を使用');
   voicevoxWarned = true;
   return null;
 }
@@ -563,7 +563,18 @@ ipcMain.handle('voicevox-speakers', async () => {
   }
 });
 
+// 合成結果を覚えておく（ボイスパックのセリフは決まっているので、2回目からクリックの反応が待たない）
+const synthCache = new Map();
+const SYNTH_CACHE_MAX = 64;
+
 ipcMain.handle('voicevox-synth', async (event, { text, speaker, speed = 1 }) => {
+  const key = `${speaker}:${speed}:${text}`;
+  const hit = synthCache.get(key);
+  if (hit) {
+    synthCache.delete(key); // 新しい側へ
+    synthCache.set(key, hit);
+    return hit;
+  }
   try {
     const q = await fetch(
       `${VOICEVOX}/audio_query?text=${encodeURIComponent(text)}&speaker=${speaker}`,
@@ -581,7 +592,10 @@ ipcMain.handle('voicevox-synth', async (event, { text, speaker, speed = 1 }) => 
     });
     if (!s.ok) throw new Error('synthesis ' + s.status);
     voicevoxWarned = false;
-    return new Uint8Array(await s.arrayBuffer());
+    const wav = new Uint8Array(await s.arrayBuffer());
+    synthCache.set(key, wav);
+    if (synthCache.size > SYNTH_CACHE_MAX) synthCache.delete(synthCache.keys().next().value);
+    return wav;
   } catch (e) {
     return voicevoxDown(e);
   }
