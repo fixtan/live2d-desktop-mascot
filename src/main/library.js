@@ -111,14 +111,36 @@ function importSingleFile(filePath) {
   return name;
 }
 
+const THUMB_RE = /^thumb\.(png|jpe?g|webp)$/i;
+
 function importModel(p) {
   // ライブラリの中のものを取り込み直すと、上書きの前に自分を消してしまう
   if (path.resolve(p).startsWith(libraryDir() + path.sep)) throw new Error('ライブラリに入っているモデルです。設定のモデル一覧から選んでね');
   const stat = fs.statSync(p);
-  if (stat.isDirectory()) return importFolder(p);
-  if (/\.zip$/i.test(p)) return importZip(p);
-  if (isSingleFileModel(p)) return importSingleFile(p);
-  throw new Error(`${importLabel} かフォルダを指定してください`);
+  let name;
+  if (stat.isDirectory()) name = keepingThumbs(() => importFolder(p));
+  else if (/\.zip$/i.test(p)) name = keepingThumbs(() => importZip(p));
+  else if (isSingleFileModel(p)) name = keepingThumbs(() => importSingleFile(p));
+  else throw new Error(`${importLabel} かフォルダを指定してください`);
+  return name;
+}
+
+// 同じ名前で取り込み直してもサムネ（thumb.*）は残す。取り込んだ物に thumb.* があればそちらを使う
+function keepingThumbs(doImport) {
+  const dir = libraryDir();
+  const saved = new Map(); // フォルダ名 → [{ name, data }]
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!e.isDirectory()) continue;
+    const files = fs.readdirSync(path.join(dir, e.name)).filter((n) => THUMB_RE.test(n));
+    if (files.length) saved.set(e.name, files.map((n) => ({ name: n, data: fs.readFileSync(path.join(dir, e.name, n)) })));
+  }
+  const name = doImport();
+  const kept = saved.get(name);
+  const dest = path.join(dir, name);
+  if (kept && !fs.readdirSync(dest).some((n) => THUMB_RE.test(n))) {
+    for (const t of kept) fs.writeFileSync(path.join(dest, t.name), t.data);
+  }
+  return name;
 }
 
 // [{ id, path }]
@@ -140,4 +162,12 @@ function removeModel(name) {
   fs.rmSync(target, { recursive: true, force: true });
 }
 
-module.exports = { libraryDir, importModel, listModels, removeModel, openZip, zipHasModel };
+// ライブラリのモデルなら、そのモデルのフォルダ（models/<名前>/）。違えば null
+function modelFolderOf(file) {
+  const dir = libraryDir();
+  const rel = path.relative(dir, path.resolve(file));
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null;
+  return path.join(dir, rel.split(path.sep)[0]);
+}
+
+module.exports = { libraryDir, modelFolderOf, importModel, listModels, removeModel, openZip, zipHasModel };

@@ -2,7 +2,7 @@
 //   操作：ipcRenderer.send('settings-action', { type, key?, value? })
 //   状態：'settings-state' { settings, bundled, library, voicePacks, target, primary, followSupported, characters }
 //   どのキャラの設定を出すかはメインが持つ（settings-select-character で切り替え）
-const { ipcRenderer } = require('electron');
+const { ipcRenderer, webUtils } = require('electron');
 const path = require('path');
 
 const $ = (id) => document.getElementById(id);
@@ -75,6 +75,7 @@ async function fillModelGrid(s) {
         name.textContent = text;
         tile.append(box, name);
         tile.onclick = () => { tile.blur(); act('model', { value }); };
+        if (value.startsWith('lib:')) acceptThumbDrop(tile, s.modelPaths?.[value], text);
         grid.appendChild(tile);
       }
     }
@@ -85,6 +86,36 @@ async function fillModelGrid(s) {
     tile.classList.toggle('selected', on);
   }
 }
+
+// タイルに画像をドロップ → 確認してから、そのモデルのフォルダに thumb.* として入れる（ライブラリのモデルだけ）
+const IMAGE_RE = /\.(png|jpe?g|webp)$/i;
+function acceptThumbDrop(tile, file, name) {
+  if (!file) return;
+  tile.addEventListener('dragover', (e) => { e.preventDefault(); tile.classList.add('drop'); });
+  tile.addEventListener('dragleave', () => tile.classList.remove('drop'));
+  tile.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    tile.classList.remove('drop');
+    const f = e.dataTransfer.files[0];
+    if (!f) return;
+    const image = webUtils.getPathForFile(f);
+    if (!IMAGE_RE.test(image)) { alert('サムネにできるのは PNG・JPEG・WebP の画像だけです'); return; }
+    const info = await ipcRenderer.invoke('thumb-info', file);
+    if (!info.editable) return;
+    const verb = info.exists ? '入れ替えますか？' : '追加しますか？';
+    if (!confirm(`「${name}」にサムネ画像「${path.basename(image)}」を${verb}`)) return;
+    const res = await ipcRenderer.invoke('thumb-set', { file, image });
+    if (res.error) { alert(res.error); return; }
+    thumbCache.delete(file);
+    gridKey = ''; // 作り直す
+    render(state);
+  });
+}
+
+// 一覧の外に落とした画像で窓が画像に置き換わらないように
+window.addEventListener('dragover', (e) => e.preventDefault());
+window.addEventListener('drop', (e) => e.preventDefault());
 
 async function fillCharacterThumb(s) {
   const c = s.characters.find((x) => x.id === s.target);

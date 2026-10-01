@@ -8,7 +8,7 @@ const { isMotionFile } = require('../shared/motions');
 const { loadConfig } = require('./config');
 const { startBridge } = require('./bridge');
 const { createStore } = require('./characters');
-const { thumbnailUrl } = require('./thumbs');
+const { thumbnailUrl, customThumb, setCustomThumb } = require('./thumbs');
 const { FORMATS, importExtensions, importLabel } = require('../shared/formats');
 
 // ===== キャラ =====
@@ -397,8 +397,24 @@ ipcMain.on('settings-action', (event, action) => {
   if (m && !m.win.isDestroyed()) m.win.webContents.send('settings-action', action);
 });
 // サムネ：ファイル → data URL（無ければ null）
+// ライブラリのモデルは models/<名前>/ の thumb.* を見る
+const thumbDirOf = (file) => library.modelFolderOf(file) || path.dirname(file);
 ipcMain.handle('model-thumbs', (event, files) =>
-  Object.fromEntries((Array.isArray(files) ? files : []).filter((f) => typeof f === 'string').map((f) => [f, thumbnailUrl(f)])));
+  Object.fromEntries((Array.isArray(files) ? files : []).filter((f) => typeof f === 'string').map((f) => [f, thumbnailUrl(f, thumbDirOf(f))])));
+
+// サムネの差し替え（設定ウィンドウでタイルに画像をドロップ）。確認は設定ウィンドウ側で済ませてある
+ipcMain.handle('thumb-info', (event, file) => {
+  const dir = typeof file === 'string' ? library.modelFolderOf(file) : null;
+  return { editable: !!dir, exists: !!(dir && customThumb(dir)) };
+});
+ipcMain.handle('thumb-set', (event, { file, image }) => {
+  const dir = typeof file === 'string' ? library.modelFolderOf(file) : null;
+  if (!dir) return { error: 'ライブラリのモデルだけ変えられます' };
+  try {
+    setCustomThumb(dir, image);
+    return { ok: true };
+  } catch (e) { return { error: e.message }; }
+});
 ipcMain.on('settings-select-character', (event, id) => setSettingsTarget(id));
 ipcMain.on('character-add', () => addCharacter());
 ipcMain.on('character-remove', (event, id) => removeCharacter(id));

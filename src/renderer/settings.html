@@ -83,6 +83,7 @@
     }
     .model-tile:hover { background: #2d2d2d; }
     .model-tile.selected { border-color: #4ea1ff; background: #264f78; color: #fff; }
+    .model-tile.drop { border: 1px dashed #4ea1ff; background: #2d3b4a; }
     .model-tile .thumb { width: 100%; aspect-ratio: 1; border-radius: 4px; overflow: hidden; background: #333; display: grid; place-items: center; }
     .model-tile .thumb img { width: 100%; height: 100%; object-fit: cover; }
     .model-tile .name {
@@ -117,6 +118,7 @@
       <button id="btn-import-model" class="side" title="ZIP / .vrm / フォルダをライブラリに入れて、このキャラに使う。同じ名前は上書き。キャラにドロップしても同じ">取り込む…</button>
     </div>
     <div id="model-grid" class="model-grid"></div>
+    <div class="hint">ライブラリのモデルは、タイルに画像（PNG・JPEG・WebP）をドロップするとサムネを付けられます</div>
     <div class="button-row mt">
       <button id="btn-select-file" title="取り込まずに、置いてある場所のまま読み込む">ファイルを直接開く…</button>
       <button id="btn-remove-model">ライブラリから削除</button>
