@@ -17,7 +17,6 @@ const mascots = new Map();
 let store = null;       // characters.json（一覧・キャラごとの設定・位置）
 const WIN_W = 400, WIN_H = 600; // 作った直後の大きさ（すぐにモデルに合わせて変わる）
 
-let isTrackingMode = tracker.supported;
 let trackerHandle = null;
 let vscodeRect = null; // DIP座標のVS Code領域（取れない/最小化中はnull）
 let cursorTimer = null;
@@ -57,7 +56,6 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     if (process.platform === 'win32') app.setAppUserModelId('com.fixtan.live2d-desktop-mascot');
     store = createStore(app.getPath('userData'));
-    isTrackingMode = tracker.supported && store.getShared('trackingMode') !== false; // 既定は VS Code 追従、切り替えは覚える
     store.list().forEach((id, i) => createMascotWindow(id, { index: i }));
     trackerHandle = tracker.start((rect) => {
       vscodeRect = rect ? screen.screenToDipRect(null, rect) : null;
@@ -149,9 +147,12 @@ function createMascotWindow(id, { index = 0, anchor = null } = {}) {
 ipcMain.on('character-init', (event) => {
   const m = mascotOf(event.sender);
   if (!m) { event.returnValue = null; return; }
+  let settings = store.get(m.id)?.settings || null;
+  // v1.4 の未リリース版で全体の動作モードを OFF にしていたら、キャラごとの設定に引き継ぐ
+  if (settings && !('follow' in settings) && store.getShared('trackingMode') === false) settings = { ...settings, follow: false };
   event.returnValue = {
     id: m.id,
-    settings: store.get(m.id)?.settings || null,
+    settings,
     migrate: store.shouldMigrate(m.id),
     primary: m.id === store.primary()
   };
@@ -360,6 +361,7 @@ function settingsView() {
     ...s,
     target: settingsTarget,
     primary: settingsTarget === primary,
+    followSupported: tracker.supported,
     characters: store.list().map((id, i) => ({
       id,
       label: `${i + 1}: ${modelLabel(lastStates.get(id)?.settings.model ?? store.get(id)?.settings?.model)}${id === primary ? '（代表）' : ''}`
@@ -378,15 +380,12 @@ function setSettingsTarget(id) {
   pushSettingsView();
 }
 
-function notifyTrackingMode() {
-  settingsWindow?.webContents.send('tracking-changed', { on: isTrackingMode, supported: tracker.supported });
-}
-
 ipcMain.on('settings-state', (event, state) => {
   const m = mascotOf(event.sender);
   if (!m || !state?.settings) return;
   lastStates.set(m.id, state);
   store.setSettings(m.id, state.settings);
+  clampToVSCode(m); // VS Code 追従を入れた時に枠内へ寄せる
   pushSettingsView(); // 他のキャラの変更でも一覧の名前が変わる
 });
 ipcMain.handle('settings-get-state', () => settingsView());
@@ -397,7 +396,6 @@ ipcMain.on('settings-action', (event, action) => {
 ipcMain.on('settings-select-character', (event, id) => setSettingsTarget(id));
 ipcMain.on('character-add', () => addCharacter());
 ipcMain.on('character-remove', (event, id) => removeCharacter(id));
-ipcMain.handle('tracking-get', () => ({ on: isTrackingMode, supported: tracker.supported }));
 
 // 画面全体のマウス位置をウィンドウ相対座標で各キャラへ送る（視線追従・ヒット判定用）
 function startCursorTracking() {
@@ -413,9 +411,16 @@ function startCursorTracking() {
   }, 33);
 }
 
+// VS Code 追従はキャラごと（Windows のみ）
+function follows(m) {
+  if (!tracker.supported) return false;
+  const st = lastStates.get(m.id)?.settings ?? store.get(m.id)?.settings;
+  return st?.follow !== false;
+}
+
 // (x, y) をVS Code領域内に収めた座標を返す（判定はキャラの描画範囲）
 function clampPosition(m, x, y) {
-  if (!isTrackingMode || !vscodeRect) return { x, y };
+  if (!follows(m) || !vscodeRect) return { x, y };
   const [w, h] = m.win.getSize();
   const ins = m.inset || { left: 0, top: 0, right: w, bottom: h };
   const r = vscodeRect;
@@ -553,16 +558,23 @@ function voicevoxDown(e) {
   return null;
 }
 
-ipcMain.handle('voicevox-speakers', async () => {
+// 話者一覧。右クリックのたびに取りに行かないよう 30 秒覚える
+// quick：右クリック用。エンジンが返事をしなくてもメニューを待たせない
+let speakersCache = { at: 0, list: null };
+async function voicevoxSpeakers({ quick = false } = {}) {
+  if (speakersCache.list && Date.now() - speakersCache.at < 30000) return speakersCache.list;
   try {
-    const res = await fetch(`${VOICEVOX}/speakers`, { signal: AbortSignal.timeout(3000) });
+    const res = await fetch(`${VOICEVOX}/speakers`, { signal: AbortSignal.timeout(quick ? 800 : 3000) });
     if (!res.ok) throw new Error('speakers ' + res.status);
     voicevoxWarned = false;
-    return await res.json();
+    speakersCache = { at: Date.now(), list: await res.json() };
+    return speakersCache.list;
   } catch (e) {
+    speakersCache = { at: 0, list: null };
     return voicevoxDown(e);
   }
-});
+}
+ipcMain.handle('voicevox-speakers', () => voicevoxSpeakers());
 
 // 合成結果を覚えておく（ボイスパックのセリフは決まっているので、2回目からクリックの反応が待たない）
 const synthCache = new Map();
@@ -604,53 +616,105 @@ ipcMain.handle('voicevox-synth', async (event, { text, speaker, speed = 1 }) => 
 
 ipcMain.on('library-open', () => shell.openPath(library.libraryDir()));
 
-// OSネイティブの右クリックメニュー
-onMascot('show-context-menu', (m, state = {}) => {
-  const send = (type, value) => m.win.webContents.send('menu-action', { type, value });
-  const template = [
-    { label: '💬 話しかける', click: () => send('talk') },
-    { type: 'separator' },
-    {
-      label: '👀 視線追従',
-      type: 'checkbox',
-      checked: !!state.gaze,
-      click: (item) => send('gaze', item.checked)
-    },
-    {
-      label: '🔊 読み上げ',
-      type: 'checkbox',
-      checked: !!state.voice,
-      click: (item) => send('voice', item.checked)
-    },
-    { type: 'separator' },
-    { label: `📦 モデルを取り込む（${importLabel}）…`, click: () => send('import-model') },
-    { label: '⚙️ 設定を開く', click: () => openSettingsWindow(m.id) },
-    {
-      label: '📌 VS Code固定モード',
-      type: 'checkbox',
-      checked: isTrackingMode,
-      enabled: tracker.supported,
-      click: (item) => setTrackingMode(item.checked)
-    },
-    { type: 'separator' },
-    { label: '📜 クレジット', click: openCredits },
-    { label: '🙈 隠す（トレイから戻せます）', click: () => m.win.hide() },
-    {
-      label: '❌ 終了',
-      click: () => app.quit()
-    }
-  ];
-  Menu.buildFromTemplate(template).popup(m.win);
-});
+// OSネイティブの右クリックメニュー（そのキャラの設定）
+// 中身はそのキャラから最後に届いた状態（settings-state）で作り、操作は設定ウィンドウと同じ settings-action で送る
+const VOICE_MODES = [
+  ['pack', 'ボイスパックだけ'],
+  ['voicevox', 'VOICEVOX'],
+  ['os', 'ボイスパック＋OS 音声'],
+  ['mute', 'ミュート（字幕だけ）']
+];
 
-function setTrackingMode(enable) {
-  isTrackingMode = enable && tracker.supported;
-  if (tracker.supported) store.setShared('trackingMode', !!enable);
-  notifyTrackingMode();
-  clampAll();
+function voiceModeOf(st) {
+  if (st.mute) return 'mute';
+  if (!st.voice) return 'pack';
+  return st.ttsEngine === 'os' ? 'os' : 'voicevox';
 }
 
-ipcMain.on('set-tracking-mode', (event, enable) => setTrackingMode(enable));
+onMascot('show-context-menu', async (m) => {
+  const state = lastStates.get(m.id);
+  const st = state?.settings || {};
+  const act = (type, extra = {}) => m.win.webContents.send('settings-action', { type, ...extra });
+  const set = (key, value) => act('set', { key, value });
+  const isPrimary = m.id === store.primary();
+  const mode = voiceModeOf(st);
+
+  // モデル：同梱・ライブラリ・外部（直接開いたファイル）
+  const modelItems = [];
+  const radio = (label, value) => ({ label, type: 'radio', checked: st.model === value, click: () => act('model', { value }) });
+  if (state?.bundled?.length) {
+    modelItems.push({ label: '同梱', enabled: false }, ...state.bundled.map((id) => radio(id, id)));
+  }
+  if (state?.library?.length) {
+    if (modelItems.length) modelItems.push({ type: 'separator' });
+    modelItems.push({ label: 'ライブラリ', enabled: false }, ...state.library.map((id) => radio(id, 'lib:' + id)));
+  }
+  if (st.model && path.isAbsolute(st.model)) {
+    modelItems.push({ type: 'separator' }, radio('📁 ' + path.basename(st.model), st.model));
+  }
+  if (!modelItems.length) modelItems.push({ label: '（モデルがありません）', enabled: false });
+
+  // VOICEVOX の話者：話者 ▸ スタイル。エンジンが起動していなければ灰色
+  const speakers = mode === 'voicevox' ? await voicevoxSpeakers({ quick: true }) : null;
+  let speakerItem;
+  if (speakers) {
+    speakerItem = {
+      label: '🎙 VOICEVOX の話者',
+      submenu: speakers.map((sp) => ({
+        // サブメニューを持つ項目にはチェックを付けられないので、今の話者は印で示す
+        label: (sp.styles.some((t) => t.id === st.voicevoxSpeaker) ? '● ' : '　') + sp.name,
+        submenu: sp.styles.map((t) => ({
+          label: t.name,
+          type: 'radio',
+          checked: t.id === st.voicevoxSpeaker,
+          click: () => set('voicevoxSpeaker', t.id)
+        }))
+      }))
+    };
+  } else {
+    speakerItem = {
+      label: mode === 'voicevox' ? '🎙 VOICEVOX の話者（エンジン未起動）' : '🎙 VOICEVOX の話者',
+      enabled: false
+    };
+  }
+
+  const template = [
+    { label: '💬 話しかける', click: () => act('talk') },
+    { type: 'separator' },
+    { label: '👗 モデル', submenu: modelItems },
+    {
+      label: '🔊 声',
+      submenu: VOICE_MODES.map(([value, label]) => ({
+        label, type: 'radio', checked: mode === value, click: () => act('voice-mode', { value })
+      }))
+    },
+    speakerItem,
+    { type: 'separator' },
+    { label: '👀 視線追従', type: 'checkbox', checked: st.gaze !== false, click: (item) => set('gaze', item.checked) },
+    { label: '🎲 ランダムイベント', type: 'checkbox', checked: st.events !== false, click: (item) => set('events', item.checked) },
+    {
+      label: isPrimary ? '🕐 時報' : '🕐 時報（代表のみ）',
+      type: 'checkbox',
+      checked: st.chime !== false,
+      enabled: isPrimary,
+      click: (item) => set('chime', item.checked)
+    },
+    {
+      label: tracker.supported ? '📌 VS Code に追従' : '📌 VS Code に追従（Windows のみ）',
+      type: 'checkbox',
+      checked: follows(m),
+      enabled: tracker.supported,
+      click: (item) => set('follow', item.checked)
+    },
+    { type: 'separator' },
+    { label: '⚙️ 設定を開く', click: () => openSettingsWindow(m.id) },
+    { label: '📜 クレジット', click: openCredits },
+    { label: '🙈 隠す（トレイから戻せます）', click: () => m.win.hide() },
+    { label: '❌ 終了', click: () => app.quit() }
+  ];
+  if (m.win.isDestroyed()) return;
+  Menu.buildFromTemplate(template).popup(m.win);
+});
 
 app.on('before-quit', () => {
   store?.flush();

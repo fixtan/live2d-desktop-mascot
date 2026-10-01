@@ -1,10 +1,9 @@
 // 設定ウィンドウ。値は持たず、操作をマスコットへ送り、返ってきた状態を表示する
 //   操作：ipcRenderer.send('settings-action', { type, key?, value? })
-//   状態：'settings-state' { settings, bundled, library, voicePacks, target, primary, characters }
+//   状態：'settings-state' { settings, bundled, library, voicePacks, target, primary, followSupported, characters }
 //   どのキャラの設定を出すかはメインが持つ（settings-select-character で切り替え）
 const { ipcRenderer } = require('electron');
 const path = require('path');
-const { importLabel } = require('../shared/formats');
 
 const $ = (id) => document.getElementById(id);
 const act = (type, extra = {}) => ipcRenderer.send('settings-action', { type, ...extra });
@@ -31,7 +30,6 @@ function fillModelSelect(s) {
   if (path.isAbsolute(s.settings.model)) {
     group('外部', [['📁 ' + path.basename(s.settings.model), s.settings.model]]);
   }
-  group('操作', [[`${importLabel} を取り込む…`, '__import__'], ['モデルファイルを直接開く…', '__file__']]);
   sel.value = s.settings.model;
 }
 
@@ -54,11 +52,26 @@ function fillVoiceSelect(s) {
   sel.value = s.settings.voicePack;
 }
 
+// 声の出し方（マスコット側の voiceModeOf と同じ）
+function voiceModeOf(st) {
+  if (st.mute) return 'mute';
+  if (!st.voice) return 'pack';
+  return st.ttsEngine === 'os' ? 'os' : 'voicevox';
+}
+
+const VOICE_HINTS = {
+  pack: 'ボイスパックの声で話す。自作セリフ（ひとこと・時報など）は字幕だけ',
+  voicevox: 'ボイスパックのセリフも自作セリフも、この話者で話す。VOICEVOX が起動していない時はボイスパックの声',
+  os: 'ボイスパックの声＋自作セリフは OS の読み上げ',
+  mute: '音を出さない。字幕としぐさだけ'
+};
+
 function render(s) {
   if (!s) return;
-  const prevEngine = state?.settings.ttsEngine;
+  const prevMode = state ? voiceModeOf(state.settings) : null;
   state = s;
   const st = s.settings;
+  const mode = voiceModeOf(st);
 
   fillCharacterSelect(s);
   fillModelSelect(s);
@@ -66,7 +79,8 @@ function render(s) {
   fillVoiceSelect(s);
 
   const setVal = (id, v) => { if (idle($(id))) $(id).value = v; };
-  setVal('engine-select', st.ttsEngine);
+  setVal('voice-mode-select', mode);
+  $('voice-mode-hint').textContent = VOICE_HINTS[mode];
   setVal('speed-range', st.voicevoxSpeed);
   setVal('height-range', st.height);
   setVal('opacity-range', st.opacity);
@@ -75,15 +89,18 @@ function render(s) {
   $('opacity-val').textContent = Math.round(st.opacity * 100) + '%';
 
   $('gaze-check').checked = st.gaze;
-  $('voice-check').checked = st.voice;
   $('events-check').checked = st.events;
   $('chime-check').checked = st.chime;
   $('chime-check').disabled = !s.primary;
   $('chime-row').classList.toggle('disabled', !s.primary);
   $('chime-note').textContent = s.primary ? '' : '（代表のみ）';
+  $('follow-check').checked = s.followSupported && st.follow !== false;
+  $('follow-check').disabled = !s.followSupported;
+  $('follow-row').classList.toggle('disabled', !s.followSupported);
+  $('follow-note').textContent = s.followSupported ? '' : '（Windows のみ）';
 
-  $('voicevox-settings').style.display = st.ttsEngine === 'voicevox' ? 'block' : 'none';
-  if (st.ttsEngine === 'voicevox' && prevEngine !== 'voicevox') refreshSpeakers();
+  $('voicevox-settings').style.display = mode === 'voicevox' ? 'block' : 'none';
+  if (mode === 'voicevox' && prevMode !== 'voicevox') refreshSpeakers();
   else if ($('speaker-select').options.length && idle($('speaker-select'))) {
     $('speaker-select').value = String(st.voicevoxSpeaker);
   }
@@ -114,13 +131,6 @@ async function refreshSpeakers() {
   credit.textContent = 'VOICEVOX:' + (sel.selectedOptions[0]?.dataset.name || '');
 }
 
-function renderMode({ on, supported }) {
-  const sel = $('mode-select');
-  sel.value = on ? 'vscode' : 'free';
-  sel.disabled = !supported;
-  $('mode-hint').textContent = supported ? '' : 'VS Code 追従は Windows のみ対応です';
-}
-
 // ===== 操作 =====
 $('character-select').onchange = (e) => {
   e.target.blur();
@@ -132,13 +142,9 @@ $('btn-remove-character').onclick = () => {
   const c = state.characters.find((x) => x.id === state.target);
   if (confirm(`「${c?.label || state.target}」を消す？`)) ipcRenderer.send('character-remove', state.target);
 };
-$('model-select').onchange = (e) => {
-  const v = e.target.value;
-  e.target.blur();
-  if (v === '__file__') { e.target.value = state.settings.model; act('select-model-file'); }
-  else if (v === '__import__') { e.target.value = state.settings.model; act('import-model'); }
-  else act('model', { value: v });
-};
+$('model-select').onchange = (e) => { e.target.blur(); act('model', { value: e.target.value }); };
+$('btn-import-model').onclick = () => act('import-model');
+$('btn-select-file').onclick = () => act('select-model-file');
 $('btn-open-library').onclick = () => ipcRenderer.send('library-open');
 $('btn-open-motions').onclick = () => ipcRenderer.send('motions-open');
 $('btn-remove-model').onclick = () => {
@@ -149,7 +155,7 @@ $('btn-remove-model').onclick = () => {
 $('voice-pack-select').onchange = (e) => { e.target.blur(); act('voice-pack', { value: e.target.value }); };
 $('btn-test-voice').onclick = () => act('test-voice');
 $('btn-test-tts').onclick = () => act('test-tts');
-$('engine-select').onchange = (e) => { e.target.blur(); set('ttsEngine', e.target.value); };
+$('voice-mode-select').onchange = (e) => { e.target.blur(); act('voice-mode', { value: e.target.value }); };
 $('speaker-select').onchange = (e) => {
   set('voicevoxSpeaker', Number(e.target.value));
   $('voicevox-credit').textContent = 'VOICEVOX:' + (e.target.selectedOptions[0]?.dataset.name || '');
@@ -158,9 +164,8 @@ $('speaker-select').onchange = (e) => {
 $('speed-range').oninput = (e) => set('voicevoxSpeed', parseFloat(e.target.value));
 $('height-range').oninput = (e) => set('height', parseFloat(e.target.value));
 $('opacity-range').oninput = (e) => set('opacity', parseFloat(e.target.value));
-$('mode-select').onchange = (e) => { e.target.blur(); ipcRenderer.send('set-tracking-mode', e.target.value === 'vscode'); };
 $('gaze-check').onchange = (e) => set('gaze', e.target.checked);
-$('voice-check').onchange = (e) => set('voice', e.target.checked);
+$('follow-check').onchange = (e) => set('follow', e.target.checked);
 $('events-check').onchange = (e) => set('events', e.target.checked);
 $('chime-check').onchange = (e) => set('chime', e.target.checked);
 
@@ -173,9 +178,7 @@ window.addEventListener('keydown', (e) => { if (e.key === 'Escape') window.close
 
 // ===== 状態の受信 =====
 ipcRenderer.on('settings-state', (event, s) => render(s));
-ipcRenderer.on('tracking-changed', (event, m) => renderMode(m));
 
 (async () => {
   render(await ipcRenderer.invoke('settings-get-state'));
-  renderMode(await ipcRenderer.invoke('tracking-get'));
 })();

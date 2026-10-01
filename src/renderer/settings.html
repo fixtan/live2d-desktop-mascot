@@ -52,10 +52,14 @@
     .check-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; cursor: pointer; }
     .check-row.disabled { opacity: 0.45; cursor: default; }
     .shared { color: #777; font-size: 11px; }
-    .character-group { padding-bottom: 12px; border-bottom: 1px solid #3a3a3a; }
+    .character-group { padding-bottom: 12px; }
     .credit { margin-top: 4px; font-size: 11px; color: #888; }
     .hint { font-size: 11px; color: #777; margin-top: 4px; }
     .mt { margin-top: 6px; }
+    h2 { font-size: 12px; font-weight: 600; color: #4ea1ff; margin: 18px 0 10px; display: flex; align-items: center; gap: 8px; }
+    h2::after { content: ''; flex: 1; height: 1px; background: #3a3a3a; }
+    h2.common { color: #aaa; margin-top: 24px; }
+    .button-row button.side { flex: 0 0 auto; padding: 5px 12px; }
   </style>
 </head>
 <body>
@@ -67,53 +71,21 @@
       <button id="btn-add-character" class="narrow" title="キャラを追加">＋</button>
       <button id="btn-remove-character" class="narrow" title="このキャラを消す">−</button>
     </div>
-    <div class="hint">以下はこのキャラの設定。VS Code のイベントと時報には代表（1番）が反応します</div>
+    <div class="hint">ここから下はこのキャラだけの設定（右クリックでも変えられます）。VS Code のイベントと時報は代表（1番）だけ</div>
   </div>
+
+  <h2>見た目</h2>
 
   <div class="setting-group">
     <label class="setting-label">モデル</label>
-    <select id="model-select"></select>
-    <div class="button-row mt">
-      <button id="btn-open-library">ライブラリを開く</button>
-      <button id="btn-remove-model">削除</button>
-    </div>
-    <div class="button-row mt">
-      <button id="btn-open-motions" title="VRM 用のモーション（.vrma。全キャラ共通）。idle で始まる名前は待機、それ以外はしぐさ">モーション（VRMA）フォルダを開く</button>
-    </div>
-  </div>
-
-  <div class="setting-group">
-    <label class="setting-label">ボイスパック</label>
     <div class="button-row">
-      <select id="voice-pack-select"></select>
-      <button id="btn-test-voice">試聴</button>
+      <select id="model-select"></select>
+      <button id="btn-import-model" class="side" title="ZIP / .vrm / フォルダをライブラリに入れて、このキャラに使う。同じ名前は上書き。キャラにドロップしても同じ">取り込む…</button>
     </div>
-  </div>
-
-  <div class="setting-group">
-    <label class="setting-label">読み上げエンジン（自作セリフ用）</label>
-    <div class="button-row">
-      <select id="engine-select">
-        <option value="voicevox">VOICEVOX</option>
-        <option value="os">OS標準</option>
-      </select>
-      <button id="btn-test-tts">試聴</button>
+    <div class="button-row mt">
+      <button id="btn-select-file" title="取り込まずに、置いてある場所のまま読み込む">ファイルを直接開く…</button>
+      <button id="btn-remove-model">ライブラリから削除</button>
     </div>
-    <div id="voicevox-settings" class="mt">
-      <select id="speaker-select"></select>
-      <label class="setting-label mt">話速 <span class="val" id="speed-val"></span></label>
-      <input type="range" id="speed-range" min="0.7" max="1.6" step="0.05">
-      <div id="voicevox-credit" class="credit"></div>
-    </div>
-  </div>
-
-  <div class="setting-group">
-    <label class="setting-label">動作モード <span class="shared">全キャラ共通</span></label>
-    <select id="mode-select">
-      <option value="vscode">VS Code追従モード (枠内限定)</option>
-      <option value="free">フリーモード (自由移動)</option>
-    </select>
-    <div class="hint" id="mode-hint"></div>
   </div>
 
   <div class="setting-group">
@@ -129,9 +101,53 @@
 
   <div class="setting-group">
     <label class="check-row"><input type="checkbox" id="gaze-check">視線追従</label>
-    <label class="check-row"><input type="checkbox" id="voice-check">自作セリフを読み上げ</label>
+  </div>
+
+  <h2>声</h2>
+
+  <div class="setting-group">
+    <label class="setting-label">話し方</label>
+    <div class="button-row">
+      <select id="voice-mode-select">
+        <option value="pack">ボイスパックだけ</option>
+        <option value="voicevox">VOICEVOX</option>
+        <option value="os">ボイスパック＋OS 音声</option>
+        <option value="mute">ミュート（字幕だけ）</option>
+      </select>
+      <button id="btn-test-tts" class="side">試聴</button>
+    </div>
+    <div class="hint" id="voice-mode-hint"></div>
+    <div id="voicevox-settings" class="mt">
+      <select id="speaker-select"></select>
+      <label class="setting-label mt">話速 <span class="val" id="speed-val"></span></label>
+      <input type="range" id="speed-range" min="0.7" max="1.6" step="0.05">
+      <div id="voicevox-credit" class="credit"></div>
+    </div>
+  </div>
+
+  <div class="setting-group">
+    <label class="setting-label">ボイスパック <span class="shared">クリック・ランダムのセリフ集</span></label>
+    <div class="button-row">
+      <select id="voice-pack-select"></select>
+      <button id="btn-test-voice" class="side">試聴</button>
+    </div>
+  </div>
+
+  <h2>ふるまい</h2>
+
+  <div class="setting-group">
     <label class="check-row"><input type="checkbox" id="events-check">ランダムイベント</label>
     <label class="check-row" id="chime-row"><input type="checkbox" id="chime-check">時報<span class="shared" id="chime-note"></span></label>
+    <label class="check-row" id="follow-row"><input type="checkbox" id="follow-check" title="VS Code の窓の中だけで動く">VS Code に追従<span class="shared" id="follow-note"></span></label>
+  </div>
+
+  <h2 class="common">全キャラ共通</h2>
+
+  <div class="setting-group">
+    <div class="button-row">
+      <button id="btn-open-library" title="取り込んだモデルの置き場所">ライブラリを開く</button>
+      <button id="btn-open-motions" title="VRM 用のモーション（.vrma）の置き場所。idle で始まる名前は待機、それ以外はしぐさ">モーションを開く</button>
+    </div>
   </div>
 
   <script src="settings.js"></script>

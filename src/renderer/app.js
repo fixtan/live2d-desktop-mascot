@@ -38,13 +38,32 @@ const DEFAULTS = {
   height: 480,
   opacity: 1,
   gaze: true,
-  voice: false,          // 自作セリフの読み上げ
+  // 声の出し方（設定画面・右クリックの「声」は voiceModeOf / setVoiceMode でこの3つにまとめて見せる）
+  voice: false,          // 読み上げ：on で VOICEVOX（ボイスパックのセリフも）か OS 音声（自作セリフだけ）
   ttsEngine: 'voicevox', // 'voicevox' | 'os'（VOICEVOXが無ければOSに切り替え）
+  mute: false,           // 音を出さない（字幕としぐさだけ）
   voicevoxSpeaker: 8,    // 話者スタイルID
   voicevoxSpeed: 1.0,
   events: true,
-  chime: true
+  chime: true,
+  follow: true           // VS Code の枠内に収める（Windows のみ。判定はメイン）
 };
+
+// 声の出し方：'pack'（ボイスパックだけ）/ 'voicevox' / 'os'（ボイスパック＋OS 音声）/ 'mute'
+function voiceModeOf(s) {
+  if (s.mute) return 'mute';
+  if (!s.voice) return 'pack';
+  return s.ttsEngine === 'os' ? 'os' : 'voicevox';
+}
+
+function setVoiceMode(mode) {
+  if (!['pack', 'voicevox', 'os', 'mute'].includes(mode)) return;
+  settings.mute = mode === 'mute';
+  if (mode === 'pack') settings.voice = false;
+  if (mode === 'voicevox' || mode === 'os') { settings.voice = true; settings.ttsEngine = mode; }
+  if (settings.mute) stopVoice();
+  saveSettings();
+}
 
 // キャラごとの設定はメインが characters.json に持つ（窓は index.html?id=c1 のように1キャラ1枚）。
 // 最初の起動の1体目だけ、以前の版の localStorage の設定を引き継ぐ
@@ -371,6 +390,12 @@ function playVoice(v = pick(voices), { auto = false } = {}) {
   const matched = v.motion && motions.find((m) => m.file.includes(v.motion));
   mascot.playMotion(matched || pick(motions));
 
+  if (settings.mute) {
+    console.log(`[voice] ミュート: ${v.text}`);
+    if (v.text) say(v.text, undefined, { tts: false, auto });
+    return true;
+  }
+
   // 読み上げ on ＋ VOICEVOX なら、セリフをこのキャラの話者で読む。合成できなければ wav
   const spoken = usesVoicevox() ? spokenText(v.text) : '';
   console.log(spoken
@@ -442,7 +467,7 @@ function say(text, ms, { tts = true, auto = false } = {}) {
     bubble.classList.remove('show');
     maybeEndSpeech();
   }, ms || Math.max(3000, text.length * 180));
-  if (tts && settings.voice) speak(text);
+  if (tts && settings.voice && !settings.mute) speak(text);
   return true;
 }
 
@@ -474,7 +499,7 @@ function synthVoicevox(text) {
 
 // ボイスパックのセリフを VOICEVOX で読むか：読み上げ on で、エンジンが VOICEVOX
 function usesVoicevox() {
-  return settings.voice && settings.ttsEngine === 'voicevox';
+  return voiceModeOf(settings) === 'voicevox';
 }
 
 // 読ませる文。括弧書きは外す。「(笑)」だけのセリフは笑い声にし、それでも読める字が無ければ空（wav を鳴らす）
@@ -601,7 +626,7 @@ ipcRenderer.on('cursor', (event, { x, y }) => {
 // ===== マウス操作 =====
 window.addEventListener('contextmenu', (e) => {
   e.preventDefault();
-  ipcRenderer.send('show-context-menu', { gaze: settings.gaze, voice: settings.voice });
+  ipcRenderer.send('show-context-menu'); // 中身はメインが最新の状態（settings-state）から作る
 });
 
 window.addEventListener('mousedown', (e) => {
@@ -749,12 +774,9 @@ ipcRenderer.on('bridge-event', (event, msg) => onBridgeEvent(msg));
 ipcRenderer.on('role', (event, { primary }) => { isPrimary = primary; });
 
 // ===== メインプロセスからのイベント =====
-ipcRenderer.on('menu-action', (event, { type, value }) => {
+// 右クリックの操作は設定ウィンドウと同じ 'settings-action' で届く。ここはトレイの「話しかける」だけ
+ipcRenderer.on('menu-action', (event, { type }) => {
   if (type === 'talk') talk();
-  else if (type === 'gaze') setGaze(value);
-  else if (type === 'voice') setSetting('voice', value);
-  else if (type === 'select-model') selectModelFile();
-  else if (type === 'import-model') importModel();
 });
 
 // ===== 設定（設定ウィンドウからの操作） =====
@@ -780,7 +802,7 @@ function applySetting(key, value) {
   if (key === 'height') applyHeight(value);
   else if (key === 'opacity') applyOpacity(value);
   else if (key === 'gaze') setGaze(value);
-  else if (key === 'model' || key === 'voicePack') return; // 専用の操作で
+  else if (key === 'model' || key === 'voicePack' || key === 'voice' || key === 'ttsEngine' || key === 'mute') return; // 専用の操作で
   else setSetting(key, value);
 }
 
@@ -793,11 +815,20 @@ ipcRenderer.on('settings-action', (event, a = {}) => {
     case 'remove-model': removeLibraryModel(); break;
     case 'voice-pack': loadVoicePack(typeof a.value === 'string' ? a.value : ''); break;
     case 'test-voice': if (!playVoice()) say('ボイスがないよ', undefined, { tts: false }); break;
-    case 'test-tts':
+    case 'voice-mode': setVoiceMode(a.value); break;
+    case 'talk': talk(); break;
+    // 今の声の出し方で試す（ボイスパックだけ・ミュートはボイスパックのセリフで）
+    case 'test-tts': {
+      const mode = voiceModeOf(settings);
+      if (mode === 'pack' || mode === 'mute') {
+        if (!playVoice()) say(`${greeting()}\n${timeText()}`, undefined, { tts: false });
+        break;
+      }
       playMotion();
       say(`${greeting()}\n${timeText()}`, undefined, { tts: false });
       speak(`${greeting()}。${timeText()}`);
       break;
+    }
   }
 });
 
