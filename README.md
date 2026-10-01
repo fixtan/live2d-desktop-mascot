@@ -9,6 +9,7 @@ VS Code のウィンドウ内に常駐する Live2D / VRM デスクトップマ�
 - マウスを目で追う・クリック／ダブルクリックで反応・時報・独り言
 - キャラ以外の透明部分はクリックが下のアプリに抜ける
 - Live2D（Cubism 3 / 4）と VRM（0.x / 1.0）に対応
+- 複数のキャラを同時に表示（Live2D と VRM を混ぜても可）。同時にはしゃべらず順番に話す
 - モデル切り替え（ZIP／フォルダ／.vrm 取り込み、モデルファイル直接指定）
 - VRM は VRMA モーション（待機・しぐさ）を使える。待機モーション2種を同梱
 - ボイスパック（声と字幕とモーションの組み合わせ）
@@ -59,6 +60,19 @@ VS Code のウィンドウ内に常駐する Live2D / VRM デスクトップマ�
 
 設定は別ウィンドウで開きます（移動でき、位置は次回も同じ）。
 
+### 複数キャラ
+
+設定ウィンドウの一番上の「キャラ」欄の＋でキャラを追加、−で削除します。どのキャラの設定を表示するかもここで選びます。
+
+- モデル・ボイスパック・読み上げの話者・サイズなどはキャラごと。位置もキャラごとに覚えて、次の起動で同じ場所に出ます
+- VS Code のイベントと時報には代表（1番目のキャラ）だけが反応します
+- 同時にはしゃべりません。独り言・時報・VS Code への反応は、ほかのキャラが話し中なら見送り、クリックや「話しかける」は割り込みます
+- 動作モード（VS Code 追従／フリー）・モデルのライブラリ・モーションは全キャラ共通です
+- トレイの「表示 / 非表示」「位置をリセット」は全キャラ、右クリックメニューの「隠す」はそのキャラだけに効きます
+- 以前の版の設定は、最初の起動で1体目に引き継がれます
+
+キャラ1体ごとに描画の負荷が増えます。GPU の無い環境では1体（Live2D、または軽い VRM）での利用をおすすめします。
+
 <img src="docs/screenshot-setting.webp" width="300" alt="設定画面">
 
 モデルの ZIP・フォルダ・`.vrm` をキャラの上にドロップすると取り込めます。日本語のファイル名を含む ZIP（Windows で作ったもの・Mac で作ったもの）も取り込めます。
@@ -107,7 +121,8 @@ npm run dist:linux   # Linux版ビルド（Linux上で実行）
 ### 構成
 
 ```
-src/main/main.js            メインプロセス（ウィンドウ・トレイ・IPC）
+src/main/main.js            メインプロセス（キャラごとのウィンドウ・トレイ・IPC・話す順番）
+src/main/characters.js      characters.json（キャラの一覧・キャラごとの設定と位置）
 src/main/library.js         モデルライブラリ（取り込み・一覧・削除）
 src/main/motions.js         VRMA モーションの置き場所（取り込み・一覧。同梱分と合わせる）
 src/main/config.js          config.json の読み込み（既定値の補完）
@@ -158,6 +173,7 @@ VS Code 側の拡張は [vscode-extension/](vscode-extension/) にあります�
 | macOS | `~/Library/Application Support/Live2D Desktop Mascot/` |
 | Linux | `~/.config/Live2D Desktop Mascot/` |
 
+- `characters.json`：キャラの一覧とキャラごとの設定・位置。アプリが書く（手で編集する場合は終了してから）
 - `config.json`：ユーザーが編集する設定。変更は再起動で反映
   ```json
   { "configVersion": 1, "bridge": { "enabled": true, "port": 0 } }
@@ -180,6 +196,8 @@ VS Code 側の拡張は [vscode-extension/](vscode-extension/) にあります�
 | `taskEnd` | `{ name, exitCode }` | 成功／失敗（`exitCode` が無ければ無反応） |
 | `say` | `{ text }` | そのまましゃべる（200文字まで） |
 | `ping` | — | `pong` を返す |
+
+キャラが複数いる時は、代表（1番目）のキャラが反応します。
 
 ボイスパックの `on` に `save` / `error` / `fixed` / `debug` / `taskOk` / `taskFail` / `connect` を書くと、その場面ではセリフの代わりにその声を使います。
 
